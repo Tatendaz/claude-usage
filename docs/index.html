@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-usage: your Claude quota, live in the terminal status bar</title>
+<meta name="description" content="See your live Claude AI quota (session, weekly, and per-model windows with reset times) in the iTerm2, tmux, WezTerm, kitty, or starship status bar. The same numbers as Claude Code's /usage screen. One Python file, zero dependencies, MIT.">
+<link rel="canonical" href="https://tatendaz.github.io/claude-usage/">
+<meta name="theme-color" content="#0d0f12">
+<meta property="og:type" content="website">
+<meta property="og:title" content="claude-usage: your Claude quota, live in the terminal status bar">
+<meta property="og:description" content="Session, weekly, and per-model Claude quota with reset times, always visible. Same numbers as /usage. Zero dependencies, MIT.">
+<meta property="og:url" content="https://tatendaz.github.io/claude-usage/">
+<meta property="og:image" content="https://tatendaz.github.io/claude-usage/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="claude-usage: your Claude quota, live in the terminal status bar">
+<meta name="twitter:description" content="Session, weekly, and per-model Claude quota with reset times, always visible. Same numbers as /usage. Zero dependencies, MIT.">
+<meta name="twitter:image" content="https://tatendaz.github.io/claude-usage/social-preview.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9C%B3%3C/text%3E%3C/svg%3E">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "claude-usage",
+  "operatingSystem": "macOS, Linux",
+  "applicationCategory": "DeveloperApplication",
+  "description": "Status bar plugin that shows live Claude AI subscription quota (session, weekly, and per-model windows with reset times) in iTerm2, tmux, WezTerm, kitty, or starship.",
+  "url": "https://tatendaz.github.io/claude-usage/",
+  "downloadUrl": "https://github.com/Tatendaz/claude-usage",
+  "license": "https://github.com/Tatendaz/claude-usage/blob/main/LICENSE",
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
+}
+</script>
+<style>
+  :root{
+    --bg:#0d0f12; --panel:#16191e; --panel2:#1c2026; --line:#262b33;
+    --text:#f2efe9; --muted:#9aa3ad; --accent:#d97757; --accent-soft:#e8926f;
+    --ok:#87d787; --warn:#e5c07b; --hot:#e06c75; --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#faf9f5; --panel:#ffffff; --panel2:#f3f1ea; --line:#e4e0d5;
+      --text:#20242b; --muted:#5c6570; --accent:#c25e3e; --accent-soft:#a04c30;
+      --ok:#3e8e3e; --warn:#9a7b1c; --hot:#b5423c; }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--text);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:0 24px}
+  a{color:var(--accent-soft);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{padding:72px 0 40px;text-align:center}
+  .mark{font-size:44px;color:var(--accent);display:block;margin-bottom:8px}
+  h1{font-size:clamp(34px,6vw,52px);letter-spacing:-.02em;line-height:1.1}
+  .tagline{font-size:clamp(18px,3vw,22px);color:var(--muted);margin:16px auto 0;max-width:34em}
+  .tagline strong{color:var(--text);font-weight:600}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:28px}
+  .btn{display:inline-block;padding:11px 22px;border-radius:8px;font-weight:600;border:1px solid var(--line)}
+  .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
+  .btn.primary:hover{background:var(--accent-soft);text-decoration:none}
+  .btn.ghost{color:var(--text)}
+  .btn.ghost:hover{border-color:var(--accent);text-decoration:none}
+  .term{background:#0b0d10;border:1px solid var(--line);border-radius:10px;margin:44px auto 0;max-width:760px;text-align:left;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+  .term-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .dot{width:11px;height:11px;border-radius:50%;background:#3a3f47}
+  .dot:first-child{background:#e06c75}.dot:nth-child(2){background:#e5c07b}.dot:nth-child(3){background:#87d787}
+  .term-title{margin-left:8px;color:#6b7280;font:12px var(--mono)}
+  .term-body{padding:18px 16px 20px;font:14px/1.9 var(--mono);color:#d7dae0;overflow-x:auto;white-space:nowrap}
+  .term-body .p{color:#8b93a1}
+  .u-ok{color:var(--ok)} .u-warn{color:var(--warn)} .u-hot{color:var(--hot)}
+  .cursor{display:inline-block;width:8px;height:16px;background:#d7dae0;vertical-align:text-bottom;animation:blink 1.1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.cursor{animation:none}}
+  section{padding:56px 0;border-top:1px solid var(--line)}
+  h2{font-size:26px;letter-spacing:-.01em;margin-bottom:10px}
+  .lead{color:var(--muted);max-width:44em}
+  .prompt-box{margin-top:26px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+  .prompt-label{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px}
+  .prompt-line{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap}
+  .prompt-text{flex:1;min-width:260px;background:var(--panel2);border:1px dashed var(--line);border-radius:8px;padding:13px 16px;font:14.5px var(--mono);overflow-x:auto;white-space:nowrap}
+  .copy{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:8px;padding:0 18px;font-weight:600;font-size:14px;font-family:inherit;cursor:pointer}
+  .copy:hover{border-color:var(--accent)}
+  .prompt-note{margin-top:14px;color:var(--muted);font-size:14.5px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:26px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+  .card h3{font-size:16.5px;margin-bottom:6px}
+  .card p{color:var(--muted);font-size:14.5px}
+  .card .k{font:13px var(--mono);color:var(--accent-soft)}
+  figure{margin-top:26px}
+  figure img{max-width:100%;border-radius:10px;border:1px solid var(--line)}
+  figcaption{color:var(--muted);font-size:13.5px;margin-top:8px}
+  .install-code{margin-top:16px;background:#0b0d10;border:1px solid var(--line);border-radius:10px;padding:16px 18px;font:14px/1.8 var(--mono);color:#d7dae0;overflow-x:auto;white-space:pre}
+  .install-code .c{color:#6b7280}
+  details{border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-top:10px}
+  summary{cursor:pointer;padding:15px 18px;font-weight:600;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";float:right;color:var(--muted)}
+  details[open] summary::after{content:"–"}
+  details div{padding:0 18px 15px;color:var(--muted)}
+  footer{padding:44px 0 64px;border-top:1px solid var(--line);color:var(--muted);font-size:14.5px;text-align:center}
+  footer .star{color:var(--text)}
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <span class="mark">✳</span>
+  <h1>claude-usage</h1>
+  <p class="tagline"><strong>Your Claude quota, live in the terminal status bar.</strong><br>
+  Session, weekly, and per-model windows with reset times. The same numbers as Claude Code's <code>/usage</code> screen, without opening it.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/Tatendaz/claude-usage">GitHub&nbsp;↗</a>
+    <a class="btn ghost" href="#install">Install</a>
+  </div>
+
+  <div class="term" role="img" aria-label="Terminal status bar showing live Claude quota">
+    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="term-title">iTerm2 · tmux · WezTerm · kitty · starship</span></div>
+    <div class="term-body">✳ Usage <span class="p">5h</span> <span class="u-ok" id="pct-5h">18%</span> · <span class="p">week</span> <span class="u-ok">12%</span> · <span class="p">fable</span> <span class="u-ok">19%</span> <span class="p">⟲ reset date Jul 19 12:30am</span>&nbsp;<span class="cursor"></span></div>
+  </div>
+</header>
+
+<section class="wrap" id="ai-install">
+  <h2>The AI installs it</h2>
+  <p class="lead">The repo ships a machine-readable runbook (<a href="https://github.com/Tatendaz/claude-usage/blob/main/AGENTS.md">AGENTS.md</a>). Paste one line into Claude Code and the agent clones the repo, detects which terminal you're in, wires it up, and verifies its own work.</p>
+  <div class="prompt-box">
+    <div class="prompt-label">Paste into Claude Code</div>
+    <div class="prompt-line">
+      <div class="prompt-text" id="magic-prompt">Install the plugin from https://github.com/Tatendaz/claude-usage</div>
+      <button class="copy" id="copy-btn" type="button">Copy</button>
+    </div>
+    <p class="prompt-note">Works in any coding agent that can run shell commands. The only step it can't do for you is drag the widget into iTerm2's status bar, and it will tell you when.</p>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>Why</h2>
+  <p class="lead">You find out you hit your weekly limit when Claude tells you. Mid-task. The number existed the whole time; it was just hidden behind a command you have to remember to run. claude-usage makes remaining quota ambient, like a battery percentage, so you can check <em>before</em> starting something big.</p>
+  <figure>
+    <img src="img/iterm2-statusbar.png" alt="claude-usage running in the iTerm2 status bar" loading="lazy">
+    <figcaption>Real capture: the iTerm2 status bar component. tmux, WezTerm, kitty, and starship render the same line.</figcaption>
+  </figure>
+</section>
+
+<section class="wrap">
+  <h2>How it works</h2>
+  <div class="grid">
+    <div class="card"><h3>Reads your existing login</h3><p>Uses the Claude Code OAuth token already on your machine (env var, macOS Keychain, or <span class="k">~/.claude/.credentials.json</span>). Read-only: it never refreshes your token, and the token goes nowhere except api.anthropic.com.</p></div>
+    <div class="card"><h3>The official numbers</h3><p>Calls the same endpoint the <span class="k">/usage</span> screen reads, so you get the real remaining percentages per window, not an estimate reconstructed from token logs.</p></div>
+    <div class="card"><h3>One cache, every terminal</h3><p>A shared 60-second cache feeds all your status bars at once. Offline shows the last good numbers marked <span class="k">✳~</span>, an expired login says so, and display modes always exit 0 so your bar never breaks.</p></div>
+    <div class="card"><h3>Zero dependencies</h3><p>One stdlib-only Python file (~640 lines) you can read before trusting it, covered by 87 tests. Everything else is a thin adapter per terminal. MIT.</p></div>
+  </div>
+</section>
+
+<section class="wrap" id="install">
+  <h2>Install by hand</h2>
+  <p class="lead">Prefer to do it yourself? Three commands, then wire up your terminal with the per-terminal guides in the README.</p>
+  <div class="install-code">git clone https://github.com/Tatendaz/claude-usage.git ~/.claude-usage
+cd ~/.claude-usage &amp;&amp; ./install.sh
+claude-usage --check   <span class="c"># verifies credentials + endpoint end-to-end</span></div>
+  <div class="grid">
+    <div class="card"><h3>iTerm2</h3><p>Native status bar component via the Python API.</p></div>
+    <div class="card"><h3>tmux</h3><p>TPM plugin: <span class="k">set -g @plugin 'Tatendaz/claude-usage'</span> and a <span class="k">#{claude_usage}</span> placeholder.</p></div>
+    <div class="card"><h3>WezTerm</h3><p>One <span class="k">require</span> in wezterm.lua renders it in the right status area.</p></div>
+    <div class="card"><h3>kitty · starship · zsh</h3><p>Tab bar integration, prompt segment, or Claude Code's own statusline. Any bar that can run a command works.</p></div>
+  </div>
+</section>
+
+<section class="wrap" id="faq">
+  <h2>FAQ</h2>
+  <details open>
+    <summary>Which Claude plans does it work with?</summary>
+    <div>Anything that signs into claude.ai: Pro, Max, Team, and Enterprise. API-key, Bedrock, and Vertex setups have no subscription quota windows, so there is nothing to display for them.</div>
+  </details>
+  <details>
+    <summary>Is it safe? Where does my token go?</summary>
+    <div>The core is one stdlib-only Python file you can read in five minutes. It reads your existing Claude Code credentials, sends the token to exactly one place (api.anthropic.com, over TLS), never writes or refreshes it, and stores only quota percentages in its local cache.</div>
+  </details>
+  <details>
+    <summary>Does it work on Windows?</summary>
+    <div>Via WSL, yes, today: the Linux path works unchanged with tmux or starship. Native Windows (WezTerm status bar, starship in PowerShell, Claude Code statusline) needs a small patch that is planned next.</div>
+  </details>
+  <details>
+    <summary>How is this different from ccusage or usage monitors?</summary>
+    <div>Those tools analyze local token logs to answer "what did I spend". claude-usage reads Anthropic's own quota endpoint to answer "what do I have left, and when does it reset". They are complementary; many people run both.</div>
+  </details>
+  <details>
+    <summary>What happens if Anthropic changes the endpoint?</summary>
+    <div>The endpoint is undocumented, so it can drift (it already changed shape once). The plugin degrades to a stale marker instead of breaking your bar, and all parsing goes through a single normalize() function built to adapt. Open an issue and it gets fixed fast.</div>
+  </details>
+</section>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "Which Claude plans does it work with?", "acceptedAnswer": {"@type": "Answer", "text": "Anything that signs into claude.ai: Pro, Max, Team, and Enterprise. API-key, Bedrock, and Vertex setups have no subscription quota windows, so there is nothing to display for them."}},
+    {"@type": "Question", "name": "Is it safe? Where does my token go?", "acceptedAnswer": {"@type": "Answer", "text": "The core is one stdlib-only Python file you can read in five minutes. It reads your existing Claude Code credentials, sends the token to exactly one place (api.anthropic.com, over TLS), never writes or refreshes it, and stores only quota percentages in its local cache."}},
+    {"@type": "Question", "name": "Does it work on Windows?", "acceptedAnswer": {"@type": "Answer", "text": "Via WSL, yes, today: the Linux path works unchanged with tmux or starship. Native Windows (WezTerm status bar, starship in PowerShell, Claude Code statusline) needs a small patch that is planned next."}},
+    {"@type": "Question", "name": "How is this different from ccusage or usage monitors?", "acceptedAnswer": {"@type": "Answer", "text": "Those tools analyze local token logs to answer \"what did I spend\". claude-usage reads Anthropic's own quota endpoint to answer \"what do I have left, and when does it reset\". They are complementary; many people run both."}},
+    {"@type": "Question", "name": "What happens if Anthropic changes the endpoint?", "acceptedAnswer": {"@type": "Answer", "text": "The endpoint is undocumented, so it can drift (it already changed shape once). The plugin degrades to a stale marker instead of breaking your bar, and all parsing goes through a single normalize() function built to adapt. Open an issue and it gets fixed fast."}}
+  ]
+}
+</script>
+
+<footer>
+  <div class="wrap">
+    <p><a href="https://github.com/Tatendaz/claude-usage">GitHub</a> · MIT · built by <a href="https://github.com/Tatendaz">Tatenda Zhou</a></p>
+    <p class="star">If this is useful, a star helps others find it.</p>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    var btn=document.getElementById('copy-btn');
+    btn.addEventListener('click',function(){
+      var text=document.getElementById('magic-prompt').textContent;
+      function done(){btn.textContent='Copied';setTimeout(function(){btn.textContent='Copy';},1600);}
+      function fallback(){var r=document.createRange();r.selectNodeContents(document.getElementById('magic-prompt'));var s=getSelection();s.removeAllRanges();s.addRange(r);var ok=false;try{ok=document.execCommand('copy');}catch(e){ok=false;}s.removeAllRanges();if(ok){done();}else{btn.textContent='Copy failed';setTimeout(function(){btn.textContent='Copy';},1600);}}
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done,fallback);}
+      else{fallback();}
+    });
+  })();
+</script>
+</body>
+</html>
