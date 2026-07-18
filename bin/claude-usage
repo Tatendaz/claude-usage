@@ -1,0 +1,617 @@
+#!/usr/bin/env python3
+"""claude-usage — your Claude quota, in a status bar.
+
+Reads your Claude Code OAuth credentials (macOS Keychain or
+~/.claude/.credentials.json), queries the same Anthropic endpoint that
+powers Claude Code's /usage screen, caches the result briefly, and prints
+it in formats suitable for status bars (iTerm2, tmux, starship, Claude
+Code statusline).
+
+Auth sources, in order:
+  1. $CLAUDE_USAGE_TOKEN            — explicit override
+  2. $CLAUDE_CODE_OAUTH_TOKEN       — long-lived token from `claude setup-token`
+  3. macOS Keychain                 — service "Claude Code-credentials"
+  4. ~/.claude/.credentials.json    — Linux / older setups
+
+Works with claude.ai subscription auth: Pro, Max, Team, and Enterprise
+seats all share the same 5-hour + weekly window model. API-key / Bedrock /
+Vertex setups have no subscription windows, so there is nothing to show.
+
+stdlib only — no dependencies.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+API_URL = "https://api.anthropic.com/api/oauth/usage"
+OAUTH_BETA = "oauth-2025-04-20"
+KEYCHAIN_SERVICE = "Claude Code-credentials"
+CREDS_FILE = os.path.expanduser("~/.claude/.credentials.json")
+FALLBACK_CLI_VERSION = "2.1.214"  # used in User-Agent if `claude --version` fails
+DEFAULT_TTL = int(os.environ.get("CLAUDE_USAGE_TTL", "60"))
+ICON = os.environ.get("CLAUDE_USAGE_ICON", "✳")
+TITLE = os.environ.get("CLAUDE_USAGE_TITLE", "Usage")  # set to "" to hide
+RESET_LABEL = os.environ.get("CLAUDE_USAGE_RESET_LABEL", "reset date")
+STALE_AFTER = 300          # serve-on-error cache older than this is marked stale
+VERSION_RECHECK = 86400    # re-detect claude CLI version daily
+
+CACHE_DIR = os.path.join(
+    os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "claude-usage"
+)
+CACHE_FILE = os.path.join(CACHE_DIR, "cache.json")
+
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+# Short labels for status bars, long titles for the panel view.
+KNOWN_BUCKETS = {
+    "five_hour": ("5h", "Current session"),
+    "seven_day": ("week", "Current week (all models)"),
+    "seven_day_oauth_apps": ("apps", "Current week (OAuth apps)"),
+}
+
+# Modern responses carry a `limits` array instead; kinds seen in the wild.
+LIMIT_KINDS = {
+    "session": ("5h", "Current session"),
+    "weekly_all": ("week", "Current week (all models)"),
+}
+
+
+def debug(*args):
+    if os.environ.get("CLAUDE_USAGE_DEBUG"):
+        print("[claude-usage]", *args, file=sys.stderr)
+
+
+class UsageError(Exception):
+    def __init__(self, kind, message):
+        super().__init__(message)
+        self.kind = kind  # no_creds | auth | rate_limited | http | network
+
+
+# ---------------------------------------------------------------- credentials
+
+def _keychain_credentials():
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        debug("keychain read failed:", e)
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    try:
+        return json.loads(out.stdout.strip())
+    except ValueError:
+        return None
+
+
+def _file_credentials():
+    try:
+        with open(CREDS_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def load_credentials():
+    """Return (token, meta, source). meta has subscriptionType/expiresAt when known."""
+    tok = os.environ.get("CLAUDE_USAGE_TOKEN") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if tok:
+        which = "CLAUDE_USAGE_TOKEN" if os.environ.get("CLAUDE_USAGE_TOKEN") else "CLAUDE_CODE_OAUTH_TOKEN"
+        return tok, {}, "env:" + which
+    for loader, source in ((_keychain_credentials, "keychain"), (_file_credentials, CREDS_FILE)):
+        data = loader()
+        if data:
+            oauth = data.get("claudeAiOauth") or {}
+            token = oauth.get("accessToken")
+            if token:
+                return token, oauth, source
+    return None, {}, None
+
+
+# ---------------------------------------------------------------------- cache
+
+def load_cache():
+    try:
+        with open(CACHE_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cache(cache):
+    # Unique temp name per writer: several status bars can refresh at once,
+    # and a shared .tmp path would let them corrupt each other's write.
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".cache-", dir=CACHE_DIR)
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(cache, f)
+            os.replace(tmp, CACHE_FILE)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    except OSError as e:
+        debug("cache write failed:", e)
+
+
+def claude_cli_version(cache):
+    """Detect the installed Claude Code version (for the User-Agent header).
+
+    Anthropic's usage endpoint aggressively rate-limits unrecognized clients,
+    so we present ourselves as the claude-code version actually installed.
+    """
+    now = time.time()
+    if cache.get("cli_version") and now - cache.get("cli_version_at", 0) < VERSION_RECHECK:
+        return cache["cli_version"]
+    version = FALLBACK_CLI_VERSION
+    try:
+        out = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=15)
+        m = re.search(r"(\d+\.\d+\.\d+)", out.stdout or "")
+        if m:
+            version = m.group(1)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        debug("claude --version failed:", e)
+    cache["cli_version"] = version
+    cache["cli_version_at"] = now
+    return version
+
+
+# ---------------------------------------------------------------------- fetch
+
+def fetch_usage(token, cli_version):
+    req = urllib.request.Request(API_URL, headers={
+        "Authorization": "Bearer " + token,
+        "anthropic-beta": OAUTH_BETA,
+        "Content-Type": "application/json",
+        "User-Agent": "claude-code/" + cli_version,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:300]
+        except OSError:
+            pass
+        debug("http", e.code, body)
+        if e.code in (401, 403):
+            raise UsageError("auth", "token rejected (HTTP %d)" % e.code)
+        if e.code == 429:
+            raise UsageError("rate_limited", "usage endpoint rate-limited (HTTP 429)")
+        raise UsageError("http", "HTTP %d from usage endpoint" % e.code)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise UsageError("network", "network error: %s" % getattr(e, "reason", e))
+
+
+def get_usage(ttl, force=False):
+    """Return (data, fetched_at, stale, error). Serves cache on failure."""
+    cache = load_cache()
+    now = time.time()
+    if not force and cache.get("data") and now - cache.get("fetched_at", 0) < ttl:
+        return cache["data"], cache["fetched_at"], False, None
+
+    token, _meta, source = load_credentials()
+    if not token:
+        err = UsageError("no_creds", "no Claude Code credentials found")
+    else:
+        debug("credentials from", source)
+        try:
+            data = fetch_usage(token, claude_cli_version(cache))
+            cache.update({"data": data, "fetched_at": now})
+            save_cache(cache)
+            return data, now, False, None
+        except UsageError as e:
+            err = e
+
+    if cache.get("data"):
+        age = now - cache.get("fetched_at", 0)
+        return cache["data"], cache.get("fetched_at", 0), age > STALE_AFTER, err
+    return None, None, False, err
+
+
+# ------------------------------------------------------------------ normalize
+
+def _parse_when(value):
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float)):  # epoch (s or ms)
+            ts = float(value)
+            if ts > 1e12:
+                ts /= 1000.0
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _scope_name(entry):
+    scope = entry.get("scope")
+    if not isinstance(scope, dict):
+        return None
+    for part in ("model", "surface"):
+        val = scope.get(part)
+        if isinstance(val, dict):
+            name = val.get("display_name") or val.get("id")
+            if name:
+                return str(name)
+        elif isinstance(val, str) and val:
+            return val
+    return None
+
+
+def _bucket(key, label, title, pct, resets, severity=None, active=None):
+    return {"key": key, "label": label, "title": title,
+            "pct": max(0.0, min(100.0, float(pct))), "resets": resets,
+            "severity": severity, "active": active}
+
+
+def _from_limits(data):
+    """Parse the modern shape: a `limits` array of {kind, percent, scope, ...}.
+
+    Scoped entries carry the per-model weekly windows (e.g. the Fable week)
+    that no longer appear as top-level keys.
+    """
+    buckets = []
+    for entry in data.get("limits") or []:
+        if not isinstance(entry, dict):
+            continue
+        pct = entry.get("percent")
+        if not isinstance(pct, (int, float)):
+            continue
+        kind = str(entry.get("kind") or "limit")
+        scope = _scope_name(entry)
+        if kind in LIMIT_KINDS:
+            label, title = LIMIT_KINDS[kind]
+        elif scope:
+            label = scope.lower()
+            title = "Current week (%s)" % scope if kind.startswith("weekly") \
+                else "%s (%s)" % (kind.replace("_", " "), scope)
+        else:
+            label = kind.replace("_", " ")
+            title = kind.replace("_", " ").capitalize()
+        key = kind + (":" + scope.lower() if scope else "")
+        buckets.append(_bucket(key, label, title, pct,
+                               _parse_when(entry.get("resets_at")),
+                               entry.get("severity"), entry.get("is_active")))
+
+    spend = data.get("spend")
+    if isinstance(spend, dict) and spend.get("enabled") \
+            and isinstance(spend.get("percent"), (int, float)):
+        buckets.append(_bucket("spend", "credits", "Extra usage credits",
+                               spend["percent"], None, spend.get("severity"), None))
+    return buckets
+
+
+def _from_legacy(data):
+    """Parse the original shape: top-level {five_hour, seven_day, ...} buckets."""
+    raw = []
+    for key, val in (data or {}).items():
+        if isinstance(val, dict) and "utilization" in val:
+            util = val.get("utilization")
+            if isinstance(util, (int, float)) and not isinstance(util, bool):
+                raw.append((key, util, _parse_when(val.get("resets_at"))))
+
+    if not raw:
+        return []
+
+    # The endpoint has reported utilization both as 0–1 fractions and 0–100
+    # percentages across versions. Detect: any value > 1.5 means percentages;
+    # otherwise any fractional float (including exactly 1.0, a maxed-out
+    # quota) means fractions. Bare 0/1 integers are read as percentages.
+    values = [u for _, u, _ in raw]
+    if max(values) > 1.5:
+        scale = 1.0
+    elif any(isinstance(u, float) and 0 < u <= 1 for u in values):
+        scale = 100.0
+    else:
+        scale = 1.0
+
+    order = {"five_hour": 0, "seven_day": 1}
+    raw.sort(key=lambda item: (order.get(item[0], 2), item[0]))
+
+    buckets = []
+    for key, util, resets in raw:
+        label, title = KNOWN_BUCKETS.get(key, (None, None))
+        if label is None:
+            # e.g. seven_day_fable -> "fable" / "Current week (Fable)"
+            short = re.sub(r"^(five_hour|seven_day)_?", "", key) or key
+            label = short.replace("_", " ")
+            title = "Current week (%s)" % short.replace("_", " ").title() \
+                if key.startswith("seven_day") else key.replace("_", " ")
+        buckets.append(_bucket(key, label, title, util * scale, resets))
+    return buckets
+
+
+def normalize(data):
+    """Turn the raw response into ordered buckets.
+
+    Prefers the modern `limits` array (which carries scoped per-model weekly
+    windows); falls back to the legacy top-level buckets for older responses.
+    """
+    if not data:
+        return []
+    return _from_limits(data) or _from_legacy(data)
+
+
+# Legacy and modern responses name the same windows differently; accept both
+# in --buckets so configs survive an account moving between shapes.
+BUCKET_ALIASES = {
+    "five_hour": "session", "session": "five_hour",
+    "seven_day": "weekly_all", "weekly_all": "seven_day",
+}
+
+
+def select_buckets(buckets, spec, show_all):
+    if spec:
+        wanted = set()
+        for part in spec.split(","):
+            part = part.strip()
+            if part:
+                wanted.add(part)
+                alias = BUCKET_ALIASES.get(part)
+                if alias:
+                    wanted.add(alias)
+        chosen = [b for b in buckets if b["key"] in wanted or b["label"] in wanted]
+        return chosen or buckets
+    if not show_all:
+        buckets = [b for b in buckets if b["key"] != "seven_day_oauth_apps"]
+    return buckets
+
+
+# ----------------------------------------------------------------- formatting
+
+def fmt_clock(dt):
+    local = dt.astimezone()
+    hour = local.hour % 12 or 12
+    clock = "%d:%02d%s" % (hour, local.minute, "am" if local.hour < 12 else "pm")
+    if local.date() == datetime.now().astimezone().date():
+        return clock
+    return "%s %d %s" % (MONTHS[local.month - 1], local.day, clock)
+
+
+def pct_text(bucket, remaining):
+    pct = round(bucket["pct"])
+    if remaining:
+        return "%d%%" % (100 - pct)
+    return "%d%%" % pct + ("!" if pct >= 90 else "")
+
+
+def pick_reset(buckets):
+    """Reset time worth showing: the hottest bucket ≥75%, else the session."""
+    hot = [b for b in buckets if b["pct"] >= 75 and b["resets"]]
+    if hot:
+        return max(hot, key=lambda b: b["pct"])
+    for b in buckets:
+        if b["key"] in ("five_hour", "session") and b["resets"]:
+            return b
+    return next((b for b in buckets if b["resets"]), None)
+
+
+def prefix(stale, title=True):
+    mark = ICON + ("~" if stale else "")
+    if title and TITLE:
+        mark += " " + TITLE
+    return mark
+
+
+def fmt_text(buckets, remaining, stale):
+    parts = ["%s %s" % (b["label"], pct_text(b, remaining)) for b in buckets]
+    tail = " left" if remaining else ""
+    return "%s %s%s" % (prefix(stale), " · ".join(parts), tail)
+
+
+def fmt_iterm(buckets, remaining, stale):
+    """Three width variants, longest first; the component passes them to iTerm2."""
+    lines = [fmt_text(buckets, remaining, stale)]
+    reset = pick_reset(buckets)
+    if reset and reset["resets"]:
+        label = (" " + RESET_LABEL) if RESET_LABEL else ""
+        lines.insert(0, "%s ⟲%s %s" % (lines[0], label, fmt_clock(reset["resets"])))
+    lines.append(prefix(stale, title=False) + " " +
+                 "/".join(pct_text(b, remaining) for b in buckets))
+    return "\n".join(lines)
+
+
+def tmux_color(pct):
+    if pct >= 85:
+        return "colour167"
+    if pct >= 60:
+        return "colour179"
+    return "colour114"
+
+
+def fmt_tmux(buckets, remaining, stale):
+    parts = []
+    for b in buckets:
+        parts.append("%s #[fg=%s]%s#[default]" % (
+            b["label"], tmux_color(b["pct"]), pct_text(b, remaining)))
+    return "%s %s" % (prefix(stale), " ".join(parts))
+
+
+def fmt_long(buckets, remaining, fetched_at, stale):
+    now = time.time()
+    lines = []
+    age = ""
+    if fetched_at:
+        age = "  (updated %ds ago%s)" % (int(now - fetched_at), ", stale" if stale else "")
+    lines.append("Claude usage%s" % age)
+    width = max(len(b["title"]) for b in buckets) + 2
+    for b in buckets:
+        pct = round(b["pct"])
+        filled = int(round(pct / 100 * 24))
+        bar = "█" * filled + "░" * (24 - filled)
+        extra = "  (%d%% left)" % (100 - pct) if remaining else ""
+        lines.append("%-*s%s %3d%% used%s" % (width, b["title"], bar, pct, extra))
+        if b["resets"]:
+            lines.append("%-*s resets %s" % (width, "", fmt_clock(b["resets"])))
+    return "\n".join(lines)
+
+
+def fmt_json(buckets, data, fetched_at, stale, error):
+    return json.dumps({
+        "fetched_at": fetched_at,
+        "age_seconds": round(time.time() - fetched_at, 1) if fetched_at else None,
+        "stale": stale,
+        "error": str(error) if error else None,
+        "buckets": [{
+            "key": b["key"], "label": b["label"], "title": b["title"],
+            "percent_used": round(b["pct"], 1),
+            "percent_left": round(100 - b["pct"], 1),
+            "resets_at": b["resets"].isoformat() if b["resets"] else None,
+            "resets_at_local": fmt_clock(b["resets"]) if b["resets"] else None,
+            "severity": b.get("severity"),
+            "active": b.get("active"),
+        } for b in buckets],
+        "raw": data,
+    }, indent=2)
+
+
+def error_line(err):
+    if err is None:
+        return ICON + " n/a"
+    if err.kind == "no_creds":
+        return ICON + " not logged in"
+    if err.kind == "auth":
+        return ICON + " login expired — open claude"
+    if err.kind == "rate_limited":
+        return ICON + " rate-limited, retrying"
+    return ICON + " offline"
+
+
+# --------------------------------------------------------------------- checks
+
+def run_check(ttl):
+    ok = True
+
+    def row(good, text):
+        nonlocal ok
+        ok = ok and good
+        print(("  ✓ " if good else "  ✗ ") + text)
+
+    print("claude-usage self-check")
+    token, meta, source = load_credentials()
+    if token:
+        row(True, "credentials found (%s)" % source)
+        if meta.get("subscriptionType"):
+            row(True, "subscription type: %s" % meta["subscriptionType"])
+        exp = _parse_when(meta.get("expiresAt"))
+        if exp:
+            live = exp > datetime.now(timezone.utc)
+            row(live, "access token %s (%s)" % (
+                "valid until" if live else "EXPIRED at", fmt_clock(exp)))
+            if not live:
+                print("      open any `claude` session to refresh it, then re-run")
+    else:
+        row(False, "no credentials: log in with `claude` (claude.ai subscription auth),")
+        print("      or export CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`")
+
+    cache = load_cache()
+    print("  · user-agent: claude-code/%s" % claude_cli_version(cache))
+    print("  · cache: %s (ttl %ds)" % (CACHE_FILE, ttl))
+
+    if token:
+        try:
+            data = fetch_usage(token, claude_cli_version(cache))
+            cache.update({"data": data, "fetched_at": time.time()})
+            save_cache(cache)
+            buckets = normalize(data)
+            row(True, "usage endpoint reachable, %d window(s) reported" % len(buckets))
+            for b in buckets:
+                reset = " · resets %s" % fmt_clock(b["resets"]) if b["resets"] else ""
+                print("      %-28s %5.1f%% used%s" % (b["title"], b["pct"], reset))
+            if not buckets:
+                row(False, "response had no usage windows (raw follows)")
+                print("      " + json.dumps(data)[:400])
+        except UsageError as e:
+            row(False, "usage endpoint: %s" % e)
+    print("check " + ("passed" if ok else "FAILED"))
+    return 0 if ok else 1
+
+
+def demo_data():
+    """Sample response in the modern `limits` shape (matches the live API)."""
+    now = datetime.now(timezone.utc)
+    iso = lambda d: d.isoformat().replace("+00:00", "Z")
+    return {
+        "limits": [
+            {"kind": "session", "group": "session", "percent": 18,
+             "severity": "normal", "resets_at": iso(now + timedelta(hours=2)),
+             "scope": None, "is_active": False},
+            {"kind": "weekly_all", "group": "weekly", "percent": 9,
+             "severity": "normal", "resets_at": iso(now + timedelta(days=3)),
+             "scope": None, "is_active": False},
+            {"kind": "weekly_scoped", "group": "weekly", "percent": 15,
+             "severity": "normal", "resets_at": iso(now + timedelta(days=3)),
+             "scope": {"model": {"id": None, "display_name": "Fable"}, "surface": None},
+             "is_active": True},
+        ],
+    }
+
+
+# ----------------------------------------------------------------------- main
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="claude-usage",
+        description="Show Claude quota (session + weekly windows) for status bars.")
+    ap.add_argument("--format", choices=["text", "iterm", "tmux", "long", "json"],
+                    default="text", help="output format (default: text)")
+    ap.add_argument("--remaining", action="store_true",
+                    help="show %% of quota left instead of %% used")
+    ap.add_argument("--buckets", metavar="LIST",
+                    help="comma-separated windows to show, e.g. session,weekly_all")
+    ap.add_argument("--all", action="store_true",
+                    help="include windows hidden by default (e.g. OAuth apps)")
+    ap.add_argument("--ttl", type=int, default=DEFAULT_TTL,
+                    help="seconds to reuse the cached response (default %ds)" % DEFAULT_TTL)
+    ap.add_argument("--force", action="store_true", help="ignore the cache")
+    ap.add_argument("--check", action="store_true", help="run a verbose self-check")
+    ap.add_argument("--demo", action="store_true", help="render sample data (no network)")
+    args = ap.parse_args()
+
+    if args.check:
+        sys.exit(run_check(args.ttl))
+
+    if args.demo:
+        data, fetched_at, stale, err = demo_data(), time.time(), False, None
+    else:
+        data, fetched_at, stale, err = get_usage(args.ttl, force=args.force)
+
+    buckets = select_buckets(normalize(data), args.buckets, args.all) if data else []
+
+    if not buckets:
+        if args.format == "json":
+            print(fmt_json([], data, fetched_at, stale, err))
+        else:
+            print(error_line(err))
+        return
+
+    if args.format == "text":
+        print(fmt_text(buckets, args.remaining, stale))
+    elif args.format == "iterm":
+        print(fmt_iterm(buckets, args.remaining, stale))
+    elif args.format == "tmux":
+        print(fmt_tmux(buckets, args.remaining, stale))
+    elif args.format == "long":
+        print(fmt_long(buckets, args.remaining, fetched_at, stale))
+    elif args.format == "json":
+        print(fmt_json(buckets, data, fetched_at, stale, err))
+
+
+if __name__ == "__main__":
+    main()
