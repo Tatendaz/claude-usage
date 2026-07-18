@@ -21,6 +21,7 @@
 (function(){
   try{
     var q=new URLSearchParams(location.search).get('theme');
+    if(q!=='light'&&q!=='dark'){q=null;}
     var t=q||localStorage.getItem('cu-theme');
     if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}
   }catch(e){}
@@ -44,7 +45,7 @@
   :root{
     --bg:#0d0f12; --panel:#15181d; --panel2:#1b1f25; --line:#252a32;
     --text:#eceef1; --muted:#98a1ac; --accent:#d97757; --link:#e08a6c;
-    --btn-text:#ffffff;
+    --btn-bg:#d97757; --btn-text:#16181d;
     --code-bg:#0b0d10; --code-line:#242933; --code-text:#d7dae0; --code-dim:#8b93a1; --code-ok:#87d787;
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
     --gap-section:clamp(72px,11vw,104px);
@@ -53,11 +54,13 @@
     :root:not([data-theme="dark"]){
       --bg:#f6f7f8; --panel:#fdfdfe; --panel2:#eef0f2; --line:#dcdfe4;
       --text:#1b1e24; --muted:#535e6b; --accent:#c2542f; --link:#a8492d;
+      --btn-bg:#b04c2c; --btn-text:#ffffff;
     }
   }
   :root[data-theme="light"]{
     --bg:#f6f7f8; --panel:#fdfdfe; --panel2:#eef0f2; --line:#dcdfe4;
     --text:#1b1e24; --muted:#535e6b; --accent:#c2542f; --link:#a8492d;
+    --btn-bg:#b04c2c; --btn-text:#ffffff;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
@@ -77,7 +80,7 @@
   .tagline .sub{display:block;margin-top:6px;color:var(--muted)}
   .cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:32px}
   .btn{display:inline-block;padding:11px 24px;border-radius:8px;font-weight:600;border:1px solid var(--line);line-height:1.4}
-  .btn.primary{background:var(--accent);color:var(--btn-text);border-color:transparent}
+  .btn.primary{background:var(--btn-bg);color:var(--btn-text);border-color:transparent}
   .btn.primary:hover{text-decoration:none;filter:brightness(1.08)}
   .btn.primary:active,.btn.ghost:active{transform:translateY(1px)}
   .btn.ghost{color:var(--text)}
@@ -113,7 +116,8 @@
   @media (max-width:640px){.how-row{grid-template-columns:1fr;gap:6px;padding:20px 0}}
   .install-code{margin-top:32px;background:var(--code-bg);border:1px solid var(--code-line);border-radius:12px;padding:20px 22px;font:14px/1.9 var(--mono);color:var(--code-text);overflow-x:auto;white-space:pre}
   .install-code .c{color:var(--code-dim)}
-  .terminals{margin-top:44px;width:100%;border-collapse:collapse;font-size:15px}
+  .table-scroll{margin-top:44px;overflow-x:auto}
+  .terminals{width:100%;min-width:560px;border-collapse:collapse;font-size:15px}
   .terminals caption{text-align:left;color:var(--muted);font-size:14px;padding-bottom:12px}
   .terminals th{text-align:left;font-weight:650;padding:14px 24px 14px 0;border-top:1px solid var(--line);white-space:nowrap;vertical-align:top;width:1%}
   .terminals td{color:var(--muted);padding:14px 0;border-top:1px solid var(--line)}
@@ -210,6 +214,7 @@
     <div class="install-code">git clone https://github.com/Tatendaz/claude-usage.git ~/.claude-usage
 cd ~/.claude-usage &amp;&amp; ./install.sh
 claude-usage --check   <span class="c"># verifies credentials + endpoint end-to-end</span></div>
+    <div class="table-scroll">
     <table class="terminals">
       <caption>Where it renders</caption>
       <tbody>
@@ -220,6 +225,7 @@ claude-usage --check   <span class="c"># verifies credentials + endpoint end-to-
         <tr><th scope="row">starship, zsh</th><td>Prompt segment, or Claude Code's own statusline. Any bar that can run a command works.</td></tr>
       </tbody>
     </table>
+    </div>
   </div>
 </section>
 
