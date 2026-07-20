@@ -72,7 +72,8 @@ The first Keychain access may pop a macOS dialog — click **Always Allow**.
 2. **Scripts → AutoLaunch → ClaudeUsage.py** to start it now (auto-starts
    with iTerm2 from then on).
 3. **Settings → Profiles → Session → Status bar enabled → Configure Status
-   Bar** → drag **Claude Usage** into the row.
+   Bar** → drag **Claude Usage** into the row. Not seeing it? Scroll down —
+   script components are listed below the built-in ones.
 
 The widget adapts to available width, from
 `✳ Usage 5h 8% · week 10% · fable 17% ⟲ reset date Jul 19 12:29am` down to
@@ -232,7 +233,7 @@ bar degrades to `✳ n/a` rather than breaking your terminal; `--check` and
 | `✳~ …` | API unreachable; showing your last good numbers. |
 | `✳ rate-limited, retrying` | HTTP 429 from the endpoint; it backs off through the cache. |
 | Keychain dialog every refresh | Click **Always Allow** (not "Allow") for "Claude Code-credentials". |
-| Widget missing in iTerm2 | Python API enabled? Script running (Scripts → AutoLaunch)? Component dragged into the status bar layout? |
+| Widget missing in iTerm2 | Python API enabled? Script running (Scripts → AutoLaunch)? Component dragged into the status bar layout? Scrolled to the bottom of the component menu (script components are listed after the built-ins)? |
 
 ## Development
 
