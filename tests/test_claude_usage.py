@@ -318,6 +318,43 @@ class TestFormatters(unittest.TestCase):
         lines = cu.fmt_iterm(buckets, False, False).splitlines()
         self.assertEqual(len(lines), 2)
 
+    def test_fmt_mini(self):
+        self.assertEqual(cu.fmt_mini(self.demo_buckets(), False, False),
+                         "✳ 18%/9%/15%")
+
+    def test_fmt_iterm_width_matches_ladder(self):
+        # wide/medium/compact/mini must be exactly the ladder's 4 lines when
+        # nothing collapses (off is the only style that ever collapses lines).
+        buckets = self.demo_buckets()
+        for style in ("countdown", "inline", "tail"):
+            ladder = cu.fmt_iterm(buckets, False, False, resets=style).splitlines()
+            widths = [cu.fmt_iterm_width(buckets, False, False, w, style)
+                     for w in ("wide", "medium", "compact", "mini")]
+            self.assertEqual(ladder, widths, style)
+
+    def test_fmt_iterm_width_medium_and_mini_ignore_resets(self):
+        buckets = self.demo_buckets()
+        for style in cu.RESET_STYLES:
+            medium = cu.fmt_iterm_width(buckets, False, False, "medium", style)
+            mini = cu.fmt_iterm_width(buckets, False, False, "mini", style)
+            self.assertNotIn("⟲", medium, style)
+            self.assertEqual(mini, "✳ 18%/9%/15%", style)
+
+    def test_fmt_iterm_width_compact_off_has_no_marks(self):
+        # Regression: fmt_compact used to have no "off" branch at all (the
+        # ladder never called it that way), so it silently rendered marks.
+        out = cu.fmt_iterm_width(self.demo_buckets(), False, False, "compact", "off")
+        self.assertNotIn("⟲", out)
+        self.assertEqual(out, "✳ 18% · 9% · 15%")
+
+    def test_fmt_iterm_width_defaults_to_countdown(self):
+        buckets = self.demo_buckets()
+        default = cu.fmt_iterm_width(buckets, False, False, "wide", None)
+        explicit = cu.fmt_iterm_width(buckets, False, False, "wide", "countdown")
+        junk = cu.fmt_iterm_width(buckets, False, False, "wide", "bogus")
+        self.assertEqual(default, explicit)
+        self.assertEqual(junk, explicit)
+
     def test_tmux_color_thresholds(self):
         self.assertEqual(cu.tmux_color(59), "colour114")
         self.assertEqual(cu.tmux_color(60), "colour179")
@@ -803,6 +840,17 @@ class TestCliEndToEnd(unittest.TestCase):
         out = self.run_cli("--demo", "--buckets", "session")
         self.assertIn("5h", out)
         self.assertNotIn("fable", out)
+
+    def test_width_prints_one_line(self):
+        for w in ("wide", "medium", "compact", "mini"):
+            out = self.run_cli("--demo", "--format", "iterm", "--width", w)
+            self.assertEqual(len(out.splitlines()), 1, w)
+        wide = self.run_cli("--demo", "--format", "iterm", "--width", "wide",
+                            "--resets", "inline")
+        self.assertIn("⟲ resets ", wide)
+        mini = self.run_cli("--demo", "--format", "iterm", "--width", "mini",
+                            "--resets", "inline")
+        self.assertNotIn("⟲", mini)
 
 
 if __name__ == "__main__":

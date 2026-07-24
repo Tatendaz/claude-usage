@@ -56,6 +56,12 @@ RESET_STYLES = ("countdown", "inline", "tail", "off")
 _env_resets = os.environ.get("CLAUDE_USAGE_RESETS", "").strip().lower()
 DEFAULT_RESETS = _env_resets if _env_resets in RESET_STYLES else None
 
+# A single fixed iTerm2 size, for --format iterm --width (one CLI call per
+# registered component in iterm2/ClaudeUsage.py, instead of the auto-fit
+# ladder). wide/compact honor --resets; medium/mini never show resets —
+# there's no room for a mark at those sizes.
+WIDTH_CHOICES = ("wide", "medium", "compact", "mini")
+
 CACHE_DIR = os.path.join(
     os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "claude-usage"
 )
@@ -512,7 +518,9 @@ def fmt_text(buckets, remaining, stale, resets="off"):
 
 def fmt_compact(buckets, remaining, stale, style):
     """Minimal variant, bare reset marks: '✳ 54% ⟲2h · 20% · 36% ⟲5d'."""
-    if style == "tail":
+    if style == "off":
+        body = " · ".join(pct_text(b, remaining) for b in buckets)
+    elif style == "tail":
         body = "/".join(pct_text(b, remaining) for b in buckets) \
             + fmt_reset_tail(buckets, minimal=True)
     else:
@@ -522,16 +530,21 @@ def fmt_compact(buckets, remaining, stale, style):
     return prefix(stale, title=False) + " " + body
 
 
+def fmt_mini(buckets, remaining, stale):
+    """Tightest fallback, bare percentages: '✳ 54%/20%/36%'."""
+    return prefix(stale, title=False) + " " + \
+        "/".join(pct_text(b, remaining) for b in buckets)
+
+
 def fmt_iterm(buckets, remaining, stale, resets=None):
     """Width variants, longest first; the component passes them to iTerm2.
 
     Unless resets are switched off the ladder is: wide (reset marks with
     the label word), medium (percentages only), compact (bare ⟲ marks),
-    and the slash form as the tightest fallback."""
+    and mini (bare percentages) as the tightest fallback."""
     style = resets if resets in RESET_STYLES else "countdown"
     plain = fmt_text(buckets, remaining, stale)
-    slash = prefix(stale, title=False) + " " + \
-        "/".join(pct_text(b, remaining) for b in buckets)
+    mini = fmt_mini(buckets, remaining, stale)
     lines = []
     if style != "off":
         wide = fmt_text(buckets, remaining, stale, resets=style)
@@ -540,10 +553,23 @@ def fmt_iterm(buckets, remaining, stale, resets=None):
     lines.append(plain)
     if style != "off":
         compact = fmt_compact(buckets, remaining, stale, style)
-        if compact != slash:
+        if compact != mini:
             lines.append(compact)
-    lines.append(slash)
+    lines.append(mini)
     return "\n".join(lines)
+
+
+def fmt_iterm_width(buckets, remaining, stale, width, resets):
+    """One fixed iTerm2 size, for a single-purpose picker component (see
+    iterm2/ClaudeUsage.py) instead of the auto-fit ladder."""
+    if width == "medium":
+        return fmt_text(buckets, remaining, stale)
+    if width == "mini":
+        return fmt_mini(buckets, remaining, stale)
+    style = resets if resets in RESET_STYLES else "countdown"
+    if width == "compact":
+        return fmt_compact(buckets, remaining, stale, style)
+    return fmt_text(buckets, remaining, stale, resets=style)
 
 
 def tmux_color(pct):
@@ -707,6 +733,10 @@ def main():
                     help="reset-time style: countdown (⟲ reset in 3h), inline "
                          "(⟲ resets 11pm), tail (grouped at the end), or off; "
                          "default: countdown in iterm, off elsewhere")
+    ap.add_argument("--width", choices=list(WIDTH_CHOICES),
+                    help="print one fixed iTerm2 size instead of the full "
+                         "width ladder (--format iterm only); wide/compact "
+                         "honor --resets, medium/mini never show resets")
     ap.add_argument("--buckets", metavar="LIST",
                     help="comma-separated windows to show, e.g. session,weekly_all")
     ap.add_argument("--all", action="store_true",
@@ -738,7 +768,10 @@ def main():
     if args.format == "text":
         print(fmt_text(buckets, args.remaining, stale, resets=args.resets))
     elif args.format == "iterm":
-        print(fmt_iterm(buckets, args.remaining, stale, resets=args.resets))
+        if args.width:
+            print(fmt_iterm_width(buckets, args.remaining, stale, args.width, args.resets))
+        else:
+            print(fmt_iterm(buckets, args.remaining, stale, resets=args.resets))
     elif args.format == "tmux":
         print(fmt_tmux(buckets, args.remaining, stale, resets=args.resets))
     elif args.format == "long":
