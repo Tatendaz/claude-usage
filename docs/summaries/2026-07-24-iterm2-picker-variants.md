@@ -57,6 +57,13 @@
   suffix; the default variant keeps the historic `claude_usage_status`
   name so bars configured before the split keep rendering.
 - Full suite: 119 tests, all passing.
+- The user captured all six variants live (each entry now renders its own
+  style — visible confirmation the RPC fix landed). Verified every
+  screenshot's content against its filename, wired them into the README
+  as a collapsible per-entry gallery, and promoted the Wide · Countdown
+  shot to hero on both the README and the landing page — the old
+  `iterm2-statusbar.png` hero still showed the pre-reset-styles format
+  (`wk 10% ⟲ Jul 19 12:29am`), which no variant renders anymore.
 
 ## Decisions
 - Preserve the original component identifier

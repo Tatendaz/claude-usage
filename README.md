@@ -8,7 +8,7 @@ The same numbers as Claude Code's `/usage` screen — the 5-hour session
 window, the weekly window, and per-model weekly windows — always visible,
 so you know how much quota you have left before you start something big.
 
-![claude-usage in the iTerm2 status bar](docs/img/iterm2-statusbar.png)
+![claude-usage in the iTerm2 status bar](docs/img/picker-wide-countdown.png)
 
 ```
 ✳ Usage 5h 8% ⟲ reset in 2h · week 10% · fable 17% ⟲ reset in 3d
@@ -87,6 +87,35 @@ what you see is what you drag, no knob to configure afterward:
 | Compact · Inline | `✳ 47% ⟲11pm · 18% · 33% ⟲Jul 28` |
 | Medium | `✳ Usage 5h 47% · week 18% · fable 33%` |
 | Mini | `✳ 47%/18%/33%` |
+
+<details>
+<summary><strong>See each entry on a real status bar</strong> (the green box marks the component)</summary>
+
+**Wide · Countdown** (default)
+
+![Wide · Countdown in the iTerm2 status bar](docs/img/picker-wide-countdown.png)
+
+**Wide · Inline**
+
+![Wide · Inline in the iTerm2 status bar](docs/img/picker-wide-inline.png)
+
+**Compact · Countdown**
+
+![Compact · Countdown in the iTerm2 status bar](docs/img/picker-compact-countdown.png)
+
+**Compact · Inline**
+
+![Compact · Inline in the iTerm2 status bar](docs/img/picker-compact-inline.png)
+
+**Medium**
+
+![Medium in the iTerm2 status bar](docs/img/picker-medium.png)
+
+**Mini**
+
+![Mini in the iTerm2 status bar](docs/img/picker-mini.png)
+
+</details>
 
 Every window shows when it resets — the 5-hour session and each weekly
 window have their own reset moments; windows sharing one (the weeklies
