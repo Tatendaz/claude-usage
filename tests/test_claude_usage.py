@@ -291,9 +291,27 @@ class TestFormatters(unittest.TestCase):
 
     def test_fmt_iterm_variants(self):
         lines = cu.fmt_iterm(self.demo_buckets(), False, False).splitlines()
-        self.assertEqual(len(lines), 3)
-        self.assertIn("⟲ reset date ", lines[0])  # longest variant, labelled
-        self.assertIn("18%/9%/15%", lines[2])      # shortest is compact
+        self.assertEqual(len(lines), 4)
+        self.assertEqual(lines[0].count("⟲ reset in "), 2)  # word at every mark
+        self.assertNotIn("⟲", lines[1])                     # medium is plain
+        self.assertIn("⟲", lines[2])                        # compact: bare marks
+        self.assertNotIn("reset", lines[2])                 # …without the word
+        self.assertRegex(lines[2], r"18% ⟲\d+[mh] · 9% · 15% ⟲\d+[hd]")
+        self.assertEqual(lines[3].count("⟲"), 0)            # tightest fallback
+        self.assertIn("18%/9%/15%", lines[3])
+
+    def test_fmt_iterm_styles(self):
+        buckets = self.demo_buckets()
+        inline = cu.fmt_iterm(buckets, False, False, resets="inline").splitlines()
+        self.assertEqual(inline[0].count("⟲ resets "), 2)
+        self.assertRegex(inline[2], r"18% ⟲\S+ · 9% · 15% ⟲\S+")
+        tail = cu.fmt_iterm(buckets, False, False, resets="tail").splitlines()
+        self.assertIn(" ⟲ resets ", tail[0])
+        self.assertIn(" · week ", tail[0].split("⟲")[1])
+        self.assertRegex(tail[2], r"18%/9%/15% ⟲ \S+·\S+$")
+        off = cu.fmt_iterm(buckets, False, False, resets="off").splitlines()
+        self.assertEqual(len(off), 2)
+        self.assertNotIn("⟲", "\n".join(off))
 
     def test_fmt_iterm_without_resets(self):
         buckets = [cu._bucket("session", "5h", "Current session", 4, None)]
@@ -311,12 +329,32 @@ class TestFormatters(unittest.TestCase):
         self.assertIn("#[fg=colour114]", out)
         self.assertIn("#[default]", out)
 
+    def test_fmt_text_reset_styles(self):
+        buckets = self.demo_buckets()
+        self.assertNotIn("⟲", cu.fmt_text(buckets, False, False))  # default off
+        countdown = cu.fmt_text(buckets, False, False, resets="countdown")
+        self.assertRegex(countdown, r"5h 18% ⟲ reset in \d+[mh]")
+        self.assertIn("week 9% ·", countdown)   # shared reset moves past week…
+        self.assertRegex(countdown, r"fable 15% ⟲ reset in \d+[hd]")  # …to here
+        inline = cu.fmt_text(buckets, False, False, resets="inline")
+        self.assertRegex(inline, r"5h 18% ⟲ resets \S+ · week 9% · fable 15% ⟲ resets ")
+        tail = cu.fmt_text(buckets, False, False, resets="tail")
+        self.assertRegex(tail, r"fable 15% ⟲ resets .+ · week ")
+
+    def test_fmt_tmux_reset_styles(self):
+        buckets = self.demo_buckets()
+        self.assertNotIn("⟲", cu.fmt_tmux(buckets, False, False))  # default off
+        out = cu.fmt_tmux(buckets, False, False, resets="countdown")
+        self.assertIn("#[fg=colour114]", out)
+        self.assertIn("⟲ reset in ", out)
+
     def test_fmt_long(self):
         out = cu.fmt_long(self.demo_buckets(), False, None, False)
         self.assertIn("Current session", out)
         self.assertIn("Current week (Fable)", out)
         self.assertIn("█", out)
         self.assertIn("resets", out)
+        self.assertRegex(out, r"resets .+ \(in \d+[mhd]\)")
 
     def test_fmt_long_remaining(self):
         out = cu.fmt_long(self.demo_buckets(), True, None, False)
@@ -333,6 +371,7 @@ class TestFormatters(unittest.TestCase):
         for bucket in payload["buckets"]:
             for field in ("key", "label", "title", "percent_used",
                           "percent_left", "resets_at", "resets_at_local",
+                          "resets_in", "resets_in_seconds",
                           "severity", "active"):
                 self.assertIn(field, bucket)
         fable = payload["buckets"][2]
@@ -345,24 +384,8 @@ class TestFormatters(unittest.TestCase):
         self.assertTrue(fable["active"])
         self.assertTrue(fable["resets_at"])
         self.assertTrue(fable["resets_at_local"])
-
-    def test_pick_reset_prefers_hot_bucket(self):
-        buckets = [
-            cu._bucket("session", "5h", "s", 10, utc(hours=1)),
-            cu._bucket("weekly_all", "wk", "w", 92, utc(days=2)),
-        ]
-        self.assertEqual(cu.pick_reset(buckets)["key"], "weekly_all")
-
-    def test_pick_reset_defaults_to_session(self):
-        buckets = cu.normalize(cu.demo_data())
-        picked = cu.pick_reset(buckets)
-        self.assertEqual(picked["key"], "session")
-
-    def test_pick_reset_modern_session_beats_later_buckets(self):
-        buckets = cu.normalize(MODERN_RESPONSE)
-        # No bucket is ≥75%, so the session window's reset is the one shown
-        # even though later buckets also carry reset times.
-        self.assertEqual(cu.pick_reset(buckets)["key"], "session")
+        self.assertRegex(fable["resets_in"], r"^\d+[mhd]$")
+        self.assertGreater(fable["resets_in_seconds"], 0)
 
     def test_fmt_clock_today_vs_future(self):
         soon = datetime.now(timezone.utc)
@@ -380,6 +403,115 @@ class TestFormatters(unittest.TestCase):
         self.assertIn("rate-limited",
                       cu.error_line(cu.UsageError("rate_limited", "x")))
         self.assertIn("offline", cu.error_line(cu.UsageError("network", "x")))
+
+
+class TestResetRendering(unittest.TestCase):
+    """The reset-time primitives behind --resets, on a fixed clock."""
+
+    NOW = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+
+    def at(self, **delta):
+        return self.NOW + timedelta(**delta)
+
+    def test_fmt_countdown_units(self):
+        cd = lambda **d: cu.fmt_countdown(self.at(**d), self.NOW)
+        self.assertEqual(cd(seconds=30), "now")
+        self.assertEqual(cd(minutes=-10), "now")   # overdue never goes negative
+        self.assertEqual(cd(minutes=5), "5m")
+        self.assertEqual(cd(minutes=59, seconds=59), "59m")
+        self.assertEqual(cd(hours=1), "1h")
+        self.assertEqual(cd(hours=23, minutes=59), "23h")
+        self.assertEqual(cd(hours=24), "1d")
+        self.assertEqual(cd(days=6, hours=5), "6d")
+
+    def test_fmt_reset_short_today_is_clock(self):
+        out = cu.fmt_reset_short(self.NOW, self.NOW)
+        self.assertRegex(out, r"^\d{1,2}(:\d{2})?(am|pm)$")
+
+    def test_fmt_reset_short_drops_zero_minutes(self):
+        on_hour = self.NOW.astimezone().replace(minute=0, second=0, microsecond=0)
+        self.assertNotIn(":", cu.fmt_reset_short(on_hour, self.NOW))
+        half_past = on_hour.replace(minute=30)
+        self.assertIn(":30", cu.fmt_reset_short(half_past, self.NOW))
+
+    def test_fmt_reset_short_weekday_within_five_days(self):
+        self.assertIn(cu.fmt_reset_short(self.at(days=3), self.NOW), cu.DAYS)
+
+    def test_fmt_reset_short_date_beyond_five_days(self):
+        self.assertRegex(cu.fmt_reset_short(self.at(days=10), self.NOW),
+                         r"^[A-Z][a-z]{2} \d{1,2}$")
+
+    def buckets(self):
+        return [
+            cu._bucket("session", "5h", "Current session", 47, self.at(hours=3)),
+            cu._bucket("weekly_all", "week", "Current week (all models)", 18,
+                       self.at(days=6, hours=1)),
+            cu._bucket("weekly_scoped:fable", "fable", "Current week (Fable)",
+                       33, self.at(days=6, hours=1)),
+        ]
+
+    def test_reset_suffixes_run_end_and_word_at_every_mark(self):
+        out = cu.reset_suffixes(self.buckets(), "countdown", self.NOW)
+        # The shared weekly reset lands after the run's LAST bucket (fable),
+        # and every mark repeats the label word.
+        self.assertEqual(out, [" ⟲ reset in 3h", "", " ⟲ reset in 6d"])
+
+    def test_reset_suffixes_skips_bucket_without_reset(self):
+        buckets = self.buckets()
+        buckets[0]["resets"] = None
+        out = cu.reset_suffixes(buckets, "countdown", self.NOW)
+        self.assertEqual(out, ["", "", " ⟲ reset in 6d"])
+
+    def test_reset_suffixes_distinct_weeklies_both_shown(self):
+        buckets = self.buckets()
+        buckets[1]["resets"] = self.at(days=2)   # week no longer matches fable
+        out = cu.reset_suffixes(buckets, "countdown", self.NOW)
+        self.assertEqual(out, [" ⟲ reset in 3h", " ⟲ reset in 2d",
+                               " ⟲ reset in 6d"])
+
+    def test_reset_suffixes_minimal_bare_marks(self):
+        out = cu.reset_suffixes(self.buckets(), "countdown", self.NOW,
+                                minimal=True)
+        self.assertEqual(out, [" ⟲3h", "", " ⟲6d"])
+
+    def test_reset_suffixes_inline_uses_absolute_times(self):
+        out = cu.reset_suffixes(self.buckets(), "inline", self.NOW)
+        self.assertTrue(out[0].startswith(" ⟲ resets "), out)
+        self.assertEqual(out[1], "")
+        self.assertTrue(out[2].startswith(" ⟲ resets "), out)
+
+    def test_fmt_reset_tail_groups_distinct_resets(self):
+        out = cu.fmt_reset_tail(self.buckets(), self.NOW)
+        self.assertTrue(out.startswith(" ⟲ resets "), out)
+        self.assertIn(" · week ", out)         # second distinct moment labelled
+        self.assertNotIn("fable", out)         # duplicate moment shown once
+        self.assertEqual(out.count("⟲"), 1)
+
+    def test_fmt_reset_tail_minimal(self):
+        out = cu.fmt_reset_tail(self.buckets(), self.NOW, minimal=True)
+        self.assertTrue(out.startswith(" ⟲ "), out)
+        self.assertIn("·", out)              # both moments, tight join
+        self.assertNotIn("resets", out)      # no label word
+        self.assertNotIn("week", out)        # no bucket labels
+
+    def test_fmt_reset_tail_empty_without_resets(self):
+        bucket = cu._bucket("session", "5h", "s", 4, None)
+        self.assertEqual(cu.fmt_reset_tail([bucket], self.NOW), "")
+
+    def test_reset_label_env_override(self):
+        with mock.patch.object(cu, "_RESET_LABEL_ENV", "back in"):
+            out = cu.reset_suffixes(self.buckets(), "countdown", self.NOW)
+            self.assertEqual(out[0], " ⟲ back in 3h")
+        with mock.patch.object(cu, "_RESET_LABEL_ENV", ""):
+            out = cu.reset_suffixes(self.buckets(), "countdown", self.NOW)
+            self.assertEqual(out[0], " ⟲ 3h")   # empty label → bare icon
+
+    def test_fmt_compact_variants(self):
+        out = cu.fmt_compact(self.buckets(), False, False, "countdown")
+        self.assertNotIn("Usage", out)
+        self.assertNotIn("fable", out)
+        tail = cu.fmt_compact(self.buckets(), False, False, "tail")
+        self.assertIn("47%/18%/33% ⟲ ", tail)
 
 
 class TestCache(unittest.TestCase):
@@ -619,9 +751,14 @@ class TestMainWithoutData(unittest.TestCase):
 class TestCliEndToEnd(unittest.TestCase):
     """Run the actual executable with --demo (no credentials, no network)."""
 
-    def run_cli(self, *args):
+    def run_cli(self, *args, env=None):
+        # Hermetic: a developer's exported CLAUDE_USAGE_* must not leak in.
+        full_env = {k: v for k, v in os.environ.items()
+                    if not k.startswith("CLAUDE_USAGE_")}
+        full_env.update(env or {})
         result = subprocess.run([sys.executable, BIN, *args],
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=30,
+                                env=full_env)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
@@ -630,14 +767,37 @@ class TestCliEndToEnd(unittest.TestCase):
         self.assertIn("% left", self.run_cli("--demo", "--remaining"))
         self.assertIn("#[fg=", self.run_cli("--demo", "--format", "tmux"))
         self.assertEqual(len(self.run_cli("--demo", "--format",
-                                          "iterm").splitlines()), 3)
+                                          "iterm").splitlines()), 4)
         self.assertIn("Current week (Fable)",
                       self.run_cli("--demo", "--format", "long"))
+
+    def test_demo_reset_styles(self):
+        iterm = self.run_cli("--demo", "--format", "iterm").splitlines()
+        self.assertEqual(iterm[0].count("⟲ reset in "), 2)  # default: countdown
+        self.assertIn("⟲", iterm[2])                        # compact, bare mark
+        self.assertNotIn("reset", iterm[2])
+        off = self.run_cli("--demo", "--format", "iterm", "--resets", "off")
+        self.assertEqual(len(off.splitlines()), 2)
+        self.assertIn("⟲ resets ", self.run_cli("--demo", "--resets", "inline"))
+        self.assertRegex(self.run_cli("--demo", "--resets", "tail"),
+                         r"⟲ resets .+ · week ")
+
+    def test_resets_env_default(self):
+        out = self.run_cli("--demo", env={"CLAUDE_USAGE_RESETS": "countdown"})
+        self.assertIn("⟲ reset in ", out)
+        junk = self.run_cli("--demo", env={"CLAUDE_USAGE_RESETS": "bogus"})
+        self.assertNotIn("⟲", junk)              # invalid env must not break
+
+    def test_reset_label_env(self):
+        out = self.run_cli("--demo", "--resets", "countdown",
+                           env={"CLAUDE_USAGE_RESET_LABEL": "back in"})
+        self.assertIn("⟲ back in ", out)
 
     def test_demo_json_contract(self):
         payload = json.loads(self.run_cli("--demo", "--format", "json"))
         self.assertEqual(len(payload["buckets"]), 3)
         self.assertIn("percent_left", payload["buckets"][0])
+        self.assertIn("resets_in", payload["buckets"][0])
 
     def test_bucket_filter(self):
         out = self.run_cli("--demo", "--buckets", "session")

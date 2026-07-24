@@ -59,12 +59,34 @@ class TestFindCore(unittest.TestCase):
                         self.assertIsNone(mod.find_core())
 
 
+class TestITermKnobStyle(unittest.TestCase):
+    def test_valid_styles_normalized(self):
+        self.assertEqual(iterm_mod.knob_style("countdown"), "countdown")
+        self.assertEqual(iterm_mod.knob_style("  Tail "), "tail")
+        self.assertEqual(iterm_mod.knob_style("OFF"), "off")
+
+    def test_junk_and_empty_fall_back_to_none(self):
+        self.assertIsNone(iterm_mod.knob_style(""))
+        self.assertIsNone(iterm_mod.knob_style(None))
+        self.assertIsNone(iterm_mod.knob_style("bogus"))
+
+
 class TestITermRunCore(unittest.TestCase):
     def test_returns_stdout_lines(self):
         fake = mock.Mock(stdout="long line\nshort\n\n", returncode=0)
         with mock.patch.object(iterm_mod, "find_core", return_value="/x"), \
              mock.patch.object(iterm_mod.subprocess, "run", return_value=fake):
             self.assertEqual(iterm_mod.run_core(), ["long line", "short"])
+
+    def test_style_forwarded_to_cli(self):
+        fake = mock.Mock(stdout="✳ x\n", returncode=0)
+        with mock.patch.object(iterm_mod, "find_core", return_value="/x"), \
+             mock.patch.object(iterm_mod.subprocess, "run",
+                               return_value=fake) as run:
+            iterm_mod.run_core("tail")
+            self.assertEqual(run.call_args[0][0][-2:], ["--resets", "tail"])
+            iterm_mod.run_core(None)
+            self.assertNotIn("--resets", run.call_args[0][0])
 
     def test_missing_core(self):
         with mock.patch.object(iterm_mod, "find_core", return_value=None):

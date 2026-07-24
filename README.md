@@ -11,7 +11,7 @@ so you know how much quota you have left before you start something big.
 ![claude-usage in the iTerm2 status bar](docs/img/iterm2-statusbar.png)
 
 ```
-✳ Usage 5h 8% · week 10% · fable 17% ⟲ reset date Jul 19 12:29am
+✳ Usage 5h 8% ⟲ reset in 2h · week 10% · fable 17% ⟲ reset in 3d
 ```
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -75,9 +75,28 @@ The first Keychain access may pop a macOS dialog — click **Always Allow**.
    Bar** → drag **Claude Usage** into the row. Not seeing it? Scroll down —
    script components are listed below the built-in ones.
 
-The widget adapts to available width, from
-`✳ Usage 5h 8% · week 10% · fable 17% ⟲ reset date Jul 19 12:29am` down to
-`✳ 8%/10%/17%`.
+Every window shows when it resets — the 5-hour session and each weekly
+window have their own reset moments; windows sharing one (the weeklies
+usually do) show it once, after the last of them. The widget hands iTerm2
+four width variants and it picks the widest that fits:
+
+```
+✳ Usage 5h 47% ⟲ reset in 3h · week 18% · fable 33% ⟲ reset in 6d   wide
+✳ Usage 5h 47% · week 18% · fable 33%                               medium
+✳ 47% ⟲3h · 18% · 33% ⟲6d                                          compact
+✳ 47%/18%/33%                                                       tightest
+```
+
+Wherever the ⟲ mark appears it carries the word ("reset in" / "resets") —
+except the compact variant, which stays minimal. The component's
+**Resets** knob (in Configure Status Bar) switches the style:
+
+| Style | Wide variant looks like |
+|---|---|
+| `countdown` (default) | `5h 47% ⟲ reset in 3h · week 18% · fable 33% ⟲ reset in 6d` |
+| `inline` | `5h 47% ⟲ resets 11pm · week 18% · fable 33% ⟲ resets Jul 28` |
+| `tail` | `5h 47% · week 18% · fable 33% ⟲ resets 11pm · week Jul 28` |
+| `off` | `5h 47% · week 18% · fable 33%` |
 
 ### tmux
 
@@ -159,7 +178,8 @@ Merge this key into `~/.claude/settings.json` (keep your existing keys):
 
 ```
 claude-usage [--format text|iterm|tmux|long|json] [--remaining]
-             [--buckets LIST] [--all] [--ttl N] [--force] [--check] [--demo]
+             [--resets countdown|inline|tail|off] [--buckets LIST] [--all]
+             [--ttl N] [--force] [--check] [--demo]
 ```
 
 | Flag | What it does |
@@ -167,25 +187,29 @@ claude-usage [--format text|iterm|tmux|long|json] [--remaining]
 | `--format long` | `/usage`-style panel with bars and reset times |
 | `--format json` | machine-readable buckets + raw API response |
 | `--remaining` | show quota **left** instead of used |
+| `--resets countdown` | reset style: `countdown` (`⟲ reset in 3h`), `inline` (`⟲ resets 11pm`), `tail` (grouped at the end), `off`. Default: countdown in `iterm`, off elsewhere |
 | `--buckets session,weekly_all` | choose which windows to show (key or label) |
 | `--ttl 60` / `--force` | cache lifetime / bypass the cache |
 | `--check` | verbose self-check (credentials, token, endpoint, windows) |
 | `--demo` | render sample data — no credentials or network needed |
 
 Environment: `CLAUDE_USAGE_TTL`, `CLAUDE_USAGE_ICON`, `CLAUDE_USAGE_TITLE`
-(set to `""` to hide the word "Usage"), `CLAUDE_USAGE_RESET_LABEL` (text
-after the ⟲ icon; default "reset date"), `CLAUDE_USAGE_BIN` (path override
-for components), `CLAUDE_USAGE_DEBUG=1`.
+(set to `""` to hide the word "Usage"), `CLAUDE_USAGE_RESETS` (default
+reset style for every format — handy for tmux/starship/zsh, which have no
+flag of their own in your config), `CLAUDE_USAGE_RESET_LABEL` (word after
+the ⟲ icon; default "reset in" for countdowns, "resets" otherwise, `""`
+for the bare icon), `CLAUDE_USAGE_BIN` (path override for components),
+`CLAUDE_USAGE_DEBUG=1`.
 
 ```
 $ claude-usage --format long
 Claude usage  (updated 12s ago)
 Current session            ██░░░░░░░░░░░░░░░░░░░░░░   8% used
-                            resets Jul 19 12:30am
+                            resets 12:30am (in 2h)
 Current week (all models)  ██░░░░░░░░░░░░░░░░░░░░░░  10% used
-                            resets Jul 21 1:00pm
+                            resets Jul 21 1:00pm (in 3d)
 Current week (Fable)       ████░░░░░░░░░░░░░░░░░░░░  17% used
-                            resets Jul 21 1:00pm
+                            resets Jul 21 1:00pm (in 3d)
 ```
 
 ## For AI agents

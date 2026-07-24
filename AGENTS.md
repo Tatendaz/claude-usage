@@ -171,7 +171,9 @@ claude-usage --format json   # cached ≤60s; --force bypasses the cache
 ```
 
 Contract: `buckets[]` each carry `key`, `label`, `title`, `percent_used`,
-`percent_left`, `resets_at` (ISO 8601 or null), `severity`, `active`;
+`percent_left`, `resets_at` (ISO 8601 or null), `resets_in_seconds`
+(int or null — seconds until that window resets, floored at 0),
+`resets_in` (compact human form like `"3h"`), `severity`, `active`;
 top-level `stale` is true when the API was unreachable and this is old
 data; `error` is a string or null; `raw` is the untouched API response.
 Bucket keys today: `session`, `weekly_all`, `weekly_scoped:<model>`

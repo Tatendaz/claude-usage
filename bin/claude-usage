@@ -40,9 +40,21 @@ FALLBACK_CLI_VERSION = "2.1.214"  # used in User-Agent if `claude --version` fai
 DEFAULT_TTL = int(os.environ.get("CLAUDE_USAGE_TTL", "60"))
 ICON = os.environ.get("CLAUDE_USAGE_ICON", "✳")
 TITLE = os.environ.get("CLAUDE_USAGE_TITLE", "Usage")  # set to "" to hide
-RESET_LABEL = os.environ.get("CLAUDE_USAGE_RESET_LABEL", "reset date")
+# Word(s) after the ⟲ icon. Unset → picked per style ("reset in" for
+# countdown, "resets" for the absolute styles); "" → bare icon.
+_RESET_LABEL_ENV = os.environ.get("CLAUDE_USAGE_RESET_LABEL")
 STALE_AFTER = 300          # serve-on-error cache older than this is marked stale
 VERSION_RECHECK = 86400    # re-detect claude CLI version daily
+
+# How reset times are rendered (a run of windows sharing one reset — the
+# weeklies usually do — shows it once, after the run's last window):
+#   countdown  5h 47% ⟲ reset in 3h · week 18% · fable 33% ⟲ reset in 6d
+#   inline     5h 47% ⟲ resets 11pm · week 18% · fable 33% ⟲ resets Jul 28
+#   tail       5h 47% · week 18% · fable 33% ⟲ resets 11pm · week Jul 28
+#   off        5h 47% · week 18% · fable 33%
+RESET_STYLES = ("countdown", "inline", "tail", "off")
+_env_resets = os.environ.get("CLAUDE_USAGE_RESETS", "").strip().lower()
+DEFAULT_RESETS = _env_resets if _env_resets in RESET_STYLES else None
 
 CACHE_DIR = os.path.join(
     os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "claude-usage"
@@ -51,6 +63,7 @@ CACHE_FILE = os.path.join(CACHE_DIR, "cache.json")
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 # Short labels for status bars, long titles for the panel view.
 KNOWN_BUCKETS = {
@@ -384,6 +397,36 @@ def fmt_clock(dt):
     return "%s %d %s" % (MONTHS[local.month - 1], local.day, clock)
 
 
+def fmt_countdown(dt, now=None):
+    """Compact time-until: 'now', '38m', '3h', '6d'."""
+    secs = (dt - (now or datetime.now(timezone.utc))).total_seconds()
+    if secs < 60:
+        return "now"
+    if secs < 3600:
+        return "%dm" % (secs // 60)
+    if secs < 86400:
+        return "%dh" % (secs // 3600)
+    return "%dd" % (secs // 86400)
+
+
+def fmt_reset_short(dt, now=None):
+    """Compact absolute time: '11pm' today, 'Sat' within 5 days, 'Jul 28'
+    beyond (a weekly window can reset up to 7 days out, where a bare
+    weekday name would be ambiguous with today)."""
+    local = dt.astimezone()
+    today = (now or datetime.now(timezone.utc)).astimezone().date()
+    days = (local.date() - today).days
+    if days <= 0:
+        hour = local.hour % 12 or 12
+        ampm = "am" if local.hour < 12 else "pm"
+        if local.minute:
+            return "%d:%02d%s" % (hour, local.minute, ampm)
+        return "%d%s" % (hour, ampm)
+    if days <= 5:
+        return DAYS[local.weekday()]
+    return "%s %d" % (MONTHS[local.month - 1], local.day)
+
+
 def pct_text(bucket, remaining):
     pct = round(bucket["pct"])
     if remaining:
@@ -391,15 +434,62 @@ def pct_text(bucket, remaining):
     return "%d%%" % pct + ("!" if pct >= 90 else "")
 
 
-def pick_reset(buckets):
-    """Reset time worth showing: the hottest bucket ≥75%, else the session."""
-    hot = [b for b in buckets if b["pct"] >= 75 and b["resets"]]
-    if hot:
-        return max(hot, key=lambda b: b["pct"])
+def reset_label(style):
+    if _RESET_LABEL_ENV is not None:
+        return _RESET_LABEL_ENV
+    return "reset in" if style == "countdown" else "resets"
+
+
+def reset_suffixes(buckets, style, now=None, minimal=False):
+    """Per-bucket ' ⟲ …' suffixes for the countdown/inline styles.
+
+    A run of adjacent buckets whose resets render the same (the weekly
+    windows usually share one moment) shows the mark once, after the run's
+    last bucket. Every mark carries the label word; minimal (the compact
+    width variant) drops the word and glues the icon to the value.
+    """
+    texts = []
     for b in buckets:
-        if b["key"] in ("five_hour", "session") and b["resets"]:
-            return b
-    return next((b for b in buckets if b["resets"]), None)
+        if b["resets"]:
+            texts.append(fmt_countdown(b["resets"], now) if style == "countdown"
+                         else fmt_reset_short(b["resets"], now))
+        else:
+            texts.append(None)
+    word = "" if minimal else reset_label(style)
+    out = []
+    for i, text in enumerate(texts):
+        nxt = texts[i + 1] if i + 1 < len(texts) else None
+        if not text or text == nxt:
+            out.append("")
+        elif minimal:
+            out.append(" ⟲" + text)
+        elif word:
+            out.append(" ⟲ %s %s" % (word, text))
+        else:
+            out.append(" ⟲ " + text)
+    return out
+
+
+def fmt_reset_tail(buckets, now=None, minimal=False):
+    """' ⟲ resets 11pm · week Jul 28' — each distinct reset moment once,
+    labelled with the bucket that introduces it (the first goes bare).
+    minimal gives just ' ⟲ 11pm·Jul 28'."""
+    entries, seen = [], set()
+    for b in buckets:
+        if not b["resets"]:
+            continue
+        text = fmt_reset_short(b["resets"], now)
+        if text not in seen:
+            seen.add(text)
+            entries.append((b["label"], text))
+    if not entries:
+        return ""
+    if minimal:
+        return " ⟲ " + "·".join(text for _, text in entries)
+    word = reset_label("tail")
+    bits = [text if i == 0 else "%s %s" % (label, text)
+            for i, (label, text) in enumerate(entries)]
+    return " ⟲ " + (word + " " if word else "") + " · ".join(bits)
 
 
 def prefix(stale, title=True):
@@ -409,21 +499,50 @@ def prefix(stale, title=True):
     return mark
 
 
-def fmt_text(buckets, remaining, stale):
-    parts = ["%s %s" % (b["label"], pct_text(b, remaining)) for b in buckets]
-    tail = " left" if remaining else ""
-    return "%s %s%s" % (prefix(stale), " · ".join(parts), tail)
+def fmt_text(buckets, remaining, stale, resets="off"):
+    style = resets if resets in RESET_STYLES else "off"
+    suffixes = reset_suffixes(buckets, style) \
+        if style in ("countdown", "inline") else [""] * len(buckets)
+    parts = ["%s %s%s" % (b["label"], pct_text(b, remaining), sfx)
+             for b, sfx in zip(buckets, suffixes)]
+    left = " left" if remaining else ""
+    tail = fmt_reset_tail(buckets) if style == "tail" else ""
+    return "%s %s%s%s" % (prefix(stale), " · ".join(parts), left, tail)
 
 
-def fmt_iterm(buckets, remaining, stale):
-    """Three width variants, longest first; the component passes them to iTerm2."""
-    lines = [fmt_text(buckets, remaining, stale)]
-    reset = pick_reset(buckets)
-    if reset and reset["resets"]:
-        label = (" " + RESET_LABEL) if RESET_LABEL else ""
-        lines.insert(0, "%s ⟲%s %s" % (lines[0], label, fmt_clock(reset["resets"])))
-    lines.append(prefix(stale, title=False) + " " +
-                 "/".join(pct_text(b, remaining) for b in buckets))
+def fmt_compact(buckets, remaining, stale, style):
+    """Minimal variant, bare reset marks: '✳ 54% ⟲2h · 20% · 36% ⟲5d'."""
+    if style == "tail":
+        body = "/".join(pct_text(b, remaining) for b in buckets) \
+            + fmt_reset_tail(buckets, minimal=True)
+    else:
+        suffixes = reset_suffixes(buckets, style, minimal=True)
+        body = " · ".join(pct_text(b, remaining) + sfx
+                          for b, sfx in zip(buckets, suffixes))
+    return prefix(stale, title=False) + " " + body
+
+
+def fmt_iterm(buckets, remaining, stale, resets=None):
+    """Width variants, longest first; the component passes them to iTerm2.
+
+    Unless resets are switched off the ladder is: wide (reset marks with
+    the label word), medium (percentages only), compact (bare ⟲ marks),
+    and the slash form as the tightest fallback."""
+    style = resets if resets in RESET_STYLES else "countdown"
+    plain = fmt_text(buckets, remaining, stale)
+    slash = prefix(stale, title=False) + " " + \
+        "/".join(pct_text(b, remaining) for b in buckets)
+    lines = []
+    if style != "off":
+        wide = fmt_text(buckets, remaining, stale, resets=style)
+        if wide != plain:
+            lines.append(wide)
+    lines.append(plain)
+    if style != "off":
+        compact = fmt_compact(buckets, remaining, stale, style)
+        if compact != slash:
+            lines.append(compact)
+    lines.append(slash)
     return "\n".join(lines)
 
 
@@ -435,12 +554,16 @@ def tmux_color(pct):
     return "colour114"
 
 
-def fmt_tmux(buckets, remaining, stale):
+def fmt_tmux(buckets, remaining, stale, resets="off"):
+    style = resets if resets in RESET_STYLES else "off"
+    suffixes = reset_suffixes(buckets, style) \
+        if style in ("countdown", "inline") else [""] * len(buckets)
     parts = []
-    for b in buckets:
-        parts.append("%s #[fg=%s]%s#[default]" % (
-            b["label"], tmux_color(b["pct"]), pct_text(b, remaining)))
-    return "%s %s" % (prefix(stale), " ".join(parts))
+    for b, sfx in zip(buckets, suffixes):
+        parts.append("%s #[fg=%s]%s#[default]%s" % (
+            b["label"], tmux_color(b["pct"]), pct_text(b, remaining), sfx))
+    tail = fmt_reset_tail(buckets) if style == "tail" else ""
+    return "%s %s%s" % (prefix(stale), " ".join(parts), tail)
 
 
 def fmt_long(buckets, remaining, fetched_at, stale):
@@ -458,11 +581,15 @@ def fmt_long(buckets, remaining, fetched_at, stale):
         extra = "  (%d%% left)" % (100 - pct) if remaining else ""
         lines.append("%-*s%s %3d%% used%s" % (width, b["title"], bar, pct, extra))
         if b["resets"]:
-            lines.append("%-*s resets %s" % (width, "", fmt_clock(b["resets"])))
+            until = fmt_countdown(b["resets"])
+            until = until if until == "now" else "in " + until
+            lines.append("%-*s resets %s (%s)" % (
+                width, "", fmt_clock(b["resets"]), until))
     return "\n".join(lines)
 
 
 def fmt_json(buckets, data, fetched_at, stale, error):
+    now = datetime.now(timezone.utc)
     return json.dumps({
         "fetched_at": fetched_at,
         "age_seconds": round(time.time() - fetched_at, 1) if fetched_at else None,
@@ -474,6 +601,9 @@ def fmt_json(buckets, data, fetched_at, stale, error):
             "percent_left": round(100 - b["pct"], 1),
             "resets_at": b["resets"].isoformat() if b["resets"] else None,
             "resets_at_local": fmt_clock(b["resets"]) if b["resets"] else None,
+            "resets_in": fmt_countdown(b["resets"], now) if b["resets"] else None,
+            "resets_in_seconds": max(0, int((b["resets"] - now).total_seconds()))
+            if b["resets"] else None,
             "severity": b.get("severity"),
             "active": b.get("active"),
         } for b in buckets],
@@ -573,6 +703,10 @@ def main():
                     default="text", help="output format (default: text)")
     ap.add_argument("--remaining", action="store_true",
                     help="show %% of quota left instead of %% used")
+    ap.add_argument("--resets", choices=list(RESET_STYLES), default=DEFAULT_RESETS,
+                    help="reset-time style: countdown (⟲ reset in 3h), inline "
+                         "(⟲ resets 11pm), tail (grouped at the end), or off; "
+                         "default: countdown in iterm, off elsewhere")
     ap.add_argument("--buckets", metavar="LIST",
                     help="comma-separated windows to show, e.g. session,weekly_all")
     ap.add_argument("--all", action="store_true",
@@ -602,11 +736,11 @@ def main():
         return
 
     if args.format == "text":
-        print(fmt_text(buckets, args.remaining, stale))
+        print(fmt_text(buckets, args.remaining, stale, resets=args.resets))
     elif args.format == "iterm":
-        print(fmt_iterm(buckets, args.remaining, stale))
+        print(fmt_iterm(buckets, args.remaining, stale, resets=args.resets))
     elif args.format == "tmux":
-        print(fmt_tmux(buckets, args.remaining, stale))
+        print(fmt_tmux(buckets, args.remaining, stale, resets=args.resets))
     elif args.format == "long":
         print(fmt_long(buckets, args.remaining, fetched_at, stale))
     elif args.format == "json":
