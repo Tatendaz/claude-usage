@@ -8,10 +8,10 @@ The same numbers as Claude Code's `/usage` screen — the 5-hour session
 window, the weekly window, and per-model weekly windows — always visible,
 so you know how much quota you have left before you start something big.
 
-![claude-usage in the iTerm2 status bar](docs/img/iterm2-statusbar.png)
+![claude-usage in the iTerm2 status bar](docs/img/picker-wide-countdown.png)
 
 ```
-✳ Usage 5h 8% · week 10% · fable 17% ⟲ reset date Jul 19 12:29am
+✳ Usage 5h 8% ⟲ reset in 2h · week 10% · fable 17% ⟲ reset in 3d
 ```
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -72,12 +72,63 @@ The first Keychain access may pop a macOS dialog — click **Always Allow**.
 2. **Scripts → AutoLaunch → ClaudeUsage.py** to start it now (auto-starts
    with iTerm2 from then on).
 3. **Settings → Profiles → Session → Status bar enabled → Configure Status
-   Bar** → drag **Claude Usage** into the row. Not seeing it? Scroll down —
-   script components are listed below the built-in ones.
+   Bar** → drag the **Claude Usage** entry you want into the row. Not
+   seeing them? Scroll down — script components are listed below the
+   built-in ones.
 
-The widget adapts to available width, from
-`✳ Usage 5h 8% · week 10% · fable 17% ⟲ reset date Jul 19 12:29am` down to
-`✳ 8%/10%/17%`.
+Six pre-built entries, each already previewed right there in the list —
+what you see is what you drag, no knob to configure afterward:
+
+| Entry | Looks like |
+|---|---|
+| Wide · Countdown (default) | `✳ Usage 5h 47% ⟲ reset in 3h · week 18% · fable 33% ⟲ reset in 6d` |
+| Wide · Inline | `✳ Usage 5h 47% ⟲ resets 11pm · week 18% · fable 33% ⟲ resets Jul 28` |
+| Compact · Countdown | `✳ 47% ⟲3h · 18% · 33% ⟲6d` |
+| Compact · Inline | `✳ 47% ⟲11pm · 18% · 33% ⟲Jul 28` |
+| Medium | `✳ Usage 5h 47% · week 18% · fable 33%` |
+| Mini | `✳ 47%/18%/33%` |
+
+<details>
+<summary><strong>See each entry on a real status bar</strong> (the green box marks the component)</summary>
+
+**Wide · Countdown** (default)
+
+![Wide · Countdown in the iTerm2 status bar](docs/img/picker-wide-countdown.png)
+
+**Wide · Inline**
+
+![Wide · Inline in the iTerm2 status bar](docs/img/picker-wide-inline.png)
+
+**Compact · Countdown**
+
+![Compact · Countdown in the iTerm2 status bar](docs/img/picker-compact-countdown.png)
+
+**Compact · Inline**
+
+![Compact · Inline in the iTerm2 status bar](docs/img/picker-compact-inline.png)
+
+**Medium**
+
+![Medium in the iTerm2 status bar](docs/img/picker-medium.png)
+
+**Mini**
+
+![Mini in the iTerm2 status bar](docs/img/picker-mini.png)
+
+</details>
+
+In the Wide and Compact entries, every window shows when it resets — the
+5-hour session and each weekly window have their own reset moments;
+windows sharing one (the weeklies usually do) show it once, after the
+last of them. Both come in two reset styles: **Countdown** (relative, `⟲ reset in 3h`) and
+**Inline** (absolute clock time, `⟲ resets 11pm`); Medium and Mini never
+show resets — there's no room at those sizes. Want `tail` (resets grouped
+at the end) or Wide/Compact with resets fully `off`? Those stay available
+from the CLI/tmux/starship side via `--resets` — drag Medium or Mini here
+for the iTerm2 equivalent of off.
+
+Already had **Claude Usage** in your status bar before this update? It's
+now **Wide · Countdown** — same identifier, nothing to re-add.
 
 ### tmux
 
@@ -159,6 +210,7 @@ Merge this key into `~/.claude/settings.json` (keep your existing keys):
 
 ```
 claude-usage [--format text|iterm|tmux|long|json] [--remaining]
+             [--resets countdown|inline|tail|off] [--width wide|medium|compact|mini]
              [--buckets LIST] [--all] [--ttl N] [--force] [--check] [--demo]
 ```
 
@@ -167,25 +219,30 @@ claude-usage [--format text|iterm|tmux|long|json] [--remaining]
 | `--format long` | `/usage`-style panel with bars and reset times |
 | `--format json` | machine-readable buckets + raw API response |
 | `--remaining` | show quota **left** instead of used |
+| `--resets countdown` | reset style: `countdown` (`⟲ reset in 3h`), `inline` (`⟲ resets 11pm`), `tail` (grouped at the end), `off`. Default: countdown in `iterm`, off elsewhere |
+| `--width wide` | print one fixed iTerm2 size instead of the full width ladder: `wide`, `medium`, `compact`, `mini` (`--format iterm` only). `wide`/`compact` honor `--resets`; `medium`/`mini` never show resets. This is what the six iTerm2 picker entries use internally |
 | `--buckets session,weekly_all` | choose which windows to show (key or label) |
 | `--ttl 60` / `--force` | cache lifetime / bypass the cache |
 | `--check` | verbose self-check (credentials, token, endpoint, windows) |
 | `--demo` | render sample data — no credentials or network needed |
 
 Environment: `CLAUDE_USAGE_TTL`, `CLAUDE_USAGE_ICON`, `CLAUDE_USAGE_TITLE`
-(set to `""` to hide the word "Usage"), `CLAUDE_USAGE_RESET_LABEL` (text
-after the ⟲ icon; default "reset date"), `CLAUDE_USAGE_BIN` (path override
-for components), `CLAUDE_USAGE_DEBUG=1`.
+(set to `""` to hide the word "Usage"), `CLAUDE_USAGE_RESETS` (default
+reset style for every format — handy for tmux/starship/zsh, which have no
+flag of their own in your config), `CLAUDE_USAGE_RESET_LABEL` (word after
+the ⟲ icon; default "reset in" for countdowns, "resets" otherwise, `""`
+for the bare icon), `CLAUDE_USAGE_BIN` (path override for components),
+`CLAUDE_USAGE_DEBUG=1`.
 
 ```
 $ claude-usage --format long
 Claude usage  (updated 12s ago)
 Current session            ██░░░░░░░░░░░░░░░░░░░░░░   8% used
-                            resets Jul 19 12:30am
+                            resets 12:30am (in 2h)
 Current week (all models)  ██░░░░░░░░░░░░░░░░░░░░░░  10% used
-                            resets Jul 21 1:00pm
+                            resets Jul 21 1:00pm (in 3d)
 Current week (Fable)       ████░░░░░░░░░░░░░░░░░░░░  17% used
-                            resets Jul 21 1:00pm
+                            resets Jul 21 1:00pm (in 3d)
 ```
 
 ## For AI agents
