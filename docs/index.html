@@ -74,6 +74,7 @@
   .theme-btn:hover{color:var(--text);border-color:var(--muted)}
   header .wrap{padding-top:clamp(48px,8vw,76px);padding-bottom:var(--gap-section)}
   .mark{color:var(--accent);font-size:clamp(30px,4.5vw,40px);line-height:1;display:block;margin-bottom:14px}
+  .mark svg{display:block}
   h1{font-size:clamp(36px,6vw,54px);letter-spacing:-.025em;line-height:1.05}
   .tagline{margin-top:20px;font-size:clamp(17px,2.6vw,20px);max-width:36em}
   .tagline strong{font-weight:650}
@@ -107,6 +108,15 @@
   figure{margin-top:44px}
   figure img{max-width:100%;border-radius:12px;border:1px solid var(--line);display:block}
   figcaption{color:var(--muted);font-size:13.5px;margin-top:12px}
+  .looks{margin-top:52px}
+  .look{padding:40px 0;border-top:1px solid var(--line)}
+  .look:first-child{padding-top:0;border-top:0}
+  .look:last-child{padding-bottom:0}
+  .look h3{font-size:17px;letter-spacing:-.01em}
+  .look .tag{display:inline-block;margin-left:10px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;font-size:11.5px;font-weight:500;line-height:1.6;color:var(--muted);letter-spacing:.02em;vertical-align:2px}
+  .look p{color:var(--muted);max-width:62ch;margin:8px 0 22px}
+  .look img{max-width:100%;border-radius:12px;border:1px solid var(--line);display:block}
+  .looks-note{margin-top:44px;padding-top:32px;border-top:1px solid var(--line);font-size:15px}
   .how{margin-top:12px}
   .how-row{display:grid;grid-template-columns:200px 1fr;gap:20px;padding:26px 0;border-top:1px solid var(--line)}
   .how-row:first-child{border-top:none;padding-top:8px}
@@ -141,7 +151,7 @@
 
 <header>
   <div class="wrap">
-    <span class="mark" aria-hidden="true">✳</span>
+    <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 6.75V12l3.4 2"/></svg></span>
     <h1>claude-usage</h1>
     <p class="tagline"><strong>Your Claude quota, live in the terminal status bar.</strong>
     <span class="sub">Session, weekly, and per-model windows with reset times. The same numbers as <code>/usage</code>, always in view.</span></p>
@@ -151,7 +161,7 @@
     </div>
     <div class="specimen">
       <p class="specimen-label">The line it keeps in your bar:</p>
-      <div class="specimen-line">✳ Usage <span class="d">5h</span> <span class="ok">18%</span> <span class="d">·</span> <span class="d">week</span> <span class="ok">12%</span> <span class="d">·</span> <span class="d">fable</span> <span class="ok">19%</span> <span class="d">⟲ reset date Jul 19 12:30am</span></div>
+      <div class="specimen-line">✳ Usage <span class="d">5h</span> <span class="ok">18%</span> <span class="d">⟲ reset in 3h</span> <span class="d">·</span> <span class="d">week</span> <span class="ok">12%</span> <span class="d">·</span> <span class="d">fable</span> <span class="ok">19%</span> <span class="d">⟲ reset in 2d</span></div>
     </div>
   </div>
 </header>
@@ -176,10 +186,46 @@
     <h2>Why</h2>
     <p class="lead">You find out you hit your weekly limit when Claude tells you. Mid-task. The number existed the whole time; it was hidden behind a command you have to remember to run.</p>
     <p class="lead dim">claude-usage makes remaining quota ambient, like a battery percentage, so you can check before starting something big.</p>
-    <figure>
-      <img src="img/picker-wide-countdown.png" alt="claude-usage running in the iTerm2 status bar" loading="lazy">
-      <figcaption>Real capture of the iTerm2 component. tmux, WezTerm, kitty, and starship render the same line.</figcaption>
-    </figure>
+  </div>
+</section>
+
+<section id="looks">
+  <div class="wrap">
+    <h2>Pick the look you want</h2>
+    <p class="lead">iTerm2's component list ships six ready-made entries, each previewed right where you drag it from — what you see is what you get, with nothing to configure afterward. They're shown widest first; choose whichever suits the room your bar has.</p>
+    <div class="looks">
+      <div class="look">
+        <h3>Wide · Countdown <span class="tag">default</span></h3>
+        <p>Window labels, percentages, and how long until each window resets, counted down from now. The most informative, and the widest.</p>
+        <img src="img/picker-wide-countdown.png" alt="Wide · Countdown: the status bar reading Usage 5h 7%, reset in 3h, week 26%, fable 46%, reset in 3d" loading="lazy">
+      </div>
+      <div class="look">
+        <h3>Wide · Inline</h3>
+        <p>The same information, but resets as wall-clock times and dates rather than countdowns. Pick this if you'd rather know <em>when</em> than <em>how long</em>.</p>
+        <img src="img/picker-wide-inline.png" alt="Wide · Inline: the status bar reading Usage 5h 7%, resets Sat, week 26%, fable 46%, resets Tue" loading="lazy">
+      </div>
+      <div class="look">
+        <h3>Medium</h3>
+        <p>Labels and percentages, no reset times — for when resets are noise to you and you just want the numbers.</p>
+        <img src="img/picker-medium.png" alt="Medium: the status bar reading Usage 5h 8%, week 27%, fable 46%" loading="lazy">
+      </div>
+      <div class="look">
+        <h3>Compact · Countdown</h3>
+        <p>Drops the labels and the word “Usage”, keeping percentages and bare countdown marks. Roughly a third the width of Wide, and still tells you when things reset.</p>
+        <img src="img/picker-compact-countdown.png" alt="Compact · Countdown: the status bar reading 7%, 3h, 26%, 46%, 3d" loading="lazy">
+      </div>
+      <div class="look">
+        <h3>Compact · Inline</h3>
+        <p>The compact layout with clock times instead of countdowns.</p>
+        <img src="img/picker-compact-inline.png" alt="Compact · Inline: the status bar reading 8%, Sat, 27%, 46%, Tue" loading="lazy">
+      </div>
+      <div class="look">
+        <h3>Mini</h3>
+        <p>Three percentages and nothing else, for a bar that's already full.</p>
+        <img src="img/picker-mini.png" alt="Mini: the status bar reading 7%/26%/46%" loading="lazy">
+      </div>
+    </div>
+    <p class="lead dim looks-note">Every capture above is a real status bar; the green outline marks the component. tmux, WezTerm, kitty, and starship render the same line, and pick their width the same way.</p>
   </div>
 </section>
 
@@ -201,7 +247,7 @@
       </div>
       <div class="how-row">
         <h3>One readable file</h3>
-        <p>The core is ~640 lines of stdlib-only Python with zero dependencies and 87 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.</p>
+        <p>The core is ~790 lines of stdlib-only Python with zero dependencies and 121 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.</p>
       </div>
     </div>
   </div>
