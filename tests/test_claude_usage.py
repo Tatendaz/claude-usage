@@ -318,6 +318,17 @@ class TestFormatters(unittest.TestCase):
         lines = cu.fmt_iterm(buckets, False, False).splitlines()
         self.assertEqual(len(lines), 2)
 
+    def test_fmt_text_remaining_left_before_reset_suffix(self):
+        # " left" belongs on the last percentage, not dangling after the
+        # final reset mark ("… fable 85% left ⟲ reset in 2d", not
+        # "… ⟲ reset in 2d left").
+        out = cu.fmt_text(self.demo_buckets(), remaining=True, stale=False,
+                          resets="countdown")
+        self.assertIn("% left ⟲ reset in ", out)
+        self.assertFalse(out.endswith("left"))
+        plain = cu.fmt_text(self.demo_buckets(), remaining=True, stale=False)
+        self.assertTrue(plain.endswith("% left"))  # off style: unchanged
+
     def test_fmt_mini(self):
         self.assertEqual(cu.fmt_mini(self.demo_buckets(), False, False),
                          "✳ 18%/9%/15%")
@@ -462,14 +473,22 @@ class TestResetRendering(unittest.TestCase):
         self.assertEqual(cd(days=6, hours=5), "6d")
 
     def test_fmt_reset_short_today_is_clock(self):
-        out = cu.fmt_reset_short(self.NOW, self.NOW)
+        out = cu.fmt_reset_short(self.at(hours=2), self.NOW)
         self.assertRegex(out, r"^\d{1,2}(:\d{2})?(am|pm)$")
 
     def test_fmt_reset_short_drops_zero_minutes(self):
-        on_hour = self.NOW.astimezone().replace(minute=0, second=0, microsecond=0)
+        on_hour = self.at(hours=2).astimezone().replace(
+            minute=0, second=0, microsecond=0)
         self.assertNotIn(":", cu.fmt_reset_short(on_hour, self.NOW))
         half_past = on_hour.replace(minute=30)
         self.assertIn(":30", cu.fmt_reset_short(half_past, self.NOW))
+
+    def test_fmt_reset_short_past_is_now(self):
+        # A reset already behind us (stale cache) must not render as a
+        # clock time — "resets 3pm" at 5pm reads as tomorrow.
+        self.assertEqual(cu.fmt_reset_short(self.at(minutes=-10), self.NOW), "now")
+        self.assertEqual(cu.fmt_reset_short(self.at(days=-2), self.NOW), "now")
+        self.assertEqual(cu.fmt_reset_short(self.NOW, self.NOW), "now")
 
     def test_fmt_reset_short_weekday_within_five_days(self):
         self.assertIn(cu.fmt_reset_short(self.at(days=3), self.NOW), cu.DAYS)

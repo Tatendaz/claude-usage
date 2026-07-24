@@ -108,16 +108,27 @@ def run_core(width, style):
         return "✳ error: %s" % type(e).__name__
 
 
+# Strong references to the refresher tasks — the event loop only holds
+# tasks weakly, so a bare create_task() can be garbage-collected mid-loop.
+_BACKGROUND_TASKS = set()
+
+
 async def register_variant(connection, suffix, label, exemplar, width, style):
     latest = {"text": "✳ …"}
 
     async def refresher():
         loop = asyncio.get_event_loop()
         while True:
-            latest["text"] = await loop.run_in_executor(None, run_core, width, style)
+            try:
+                latest["text"] = await loop.run_in_executor(
+                    None, run_core, width, style)
+            except Exception:  # a dead refresher would freeze the bar forever
+                latest["text"] = "✳ error"
             await asyncio.sleep(REFRESH_SECONDS)
 
-    asyncio.create_task(refresher())
+    task = asyncio.create_task(refresher())
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
 
     component = iterm2.StatusBarComponent(
         short_description="Claude Usage — %s" % label,

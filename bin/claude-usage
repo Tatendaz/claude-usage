@@ -418,9 +418,13 @@ def fmt_countdown(dt, now=None):
 def fmt_reset_short(dt, now=None):
     """Compact absolute time: '11pm' today, 'Sat' within 5 days, 'Jul 28'
     beyond (a weekly window can reset up to 7 days out, where a bare
-    weekday name would be ambiguous with today)."""
+    weekday name would be ambiguous with today). A reset already in the
+    past (stale cache) says 'now' — its clock time would read as future."""
+    moment = now or datetime.now(timezone.utc)
+    if dt <= moment:
+        return "now"
     local = dt.astimezone()
-    today = (now or datetime.now(timezone.utc)).astimezone().date()
+    today = moment.astimezone().date()
     days = (local.date() - today).days
     if days <= 0:
         hour = local.hour % 12 or 12
@@ -509,11 +513,12 @@ def fmt_text(buckets, remaining, stale, resets="off"):
     style = resets if resets in RESET_STYLES else "off"
     suffixes = reset_suffixes(buckets, style) \
         if style in ("countdown", "inline") else [""] * len(buckets)
-    parts = ["%s %s%s" % (b["label"], pct_text(b, remaining), sfx)
-             for b, sfx in zip(buckets, suffixes)]
-    left = " left" if remaining else ""
+    last = len(buckets) - 1
+    parts = ["%s %s%s%s" % (b["label"], pct_text(b, remaining),
+                            " left" if remaining and i == last else "", sfx)
+             for i, (b, sfx) in enumerate(zip(buckets, suffixes))]
     tail = fmt_reset_tail(buckets) if style == "tail" else ""
-    return "%s %s%s%s" % (prefix(stale), " · ".join(parts), left, tail)
+    return "%s %s%s" % (prefix(stale), " · ".join(parts), tail)
 
 
 def fmt_compact(buckets, remaining, stale, style):

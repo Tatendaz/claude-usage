@@ -8,7 +8,7 @@ Every window now shows when it resets, not just one. The 5-hour session
 and the weekly windows (including per-model weeks like Fable) have their
 own reset moments; previously only a single picked reset appeared, only in
 the widest iTerm2 variant, labelled ambiguously (`⟲ reset date 11:00pm` —
-reset of *what*?). Three display styles are available, user-selectable:
+reset of *what*?). Four display styles are available, user-selectable:
 
 - `countdown` (default in iTerm2): `5h 47% ⟲ reset in 3h · week 18% · fable 33% ⟲ reset in 6d`
 - `inline`: `5h 47% ⟲ resets 11pm · week 18% · fable 33% ⟲ resets Jul 28`
@@ -32,7 +32,8 @@ on its own 5-hour cycle, but the bar showed only one of them. The label
   "6d") and `fmt_reset_short` (clock today, weekday within 5 days, month
   day beyond — a weekly reset can be 7 days out, where a bare weekday
   would be ambiguous). Every ⟲ mark carries the label word ("reset in"
-  for countdowns, "resets" for absolute styles; `CLAUDE_USAGE_RESET_LABEL`
+  for countdowns, "resets" for absolute styles — the compact width
+  variant drops the word; `CLAUDE_USAGE_RESET_LABEL`
   overrides, `""` gives the bare icon); a run of buckets whose resets
   render the same (the weeklies usually share one moment) shows the mark
   once, after the run's last bucket. `pick_reset` (the old single-reset

@@ -117,10 +117,10 @@ what you see is what you drag, no knob to configure afterward:
 
 </details>
 
-Every window shows when it resets — the 5-hour session and each weekly
-window have their own reset moments; windows sharing one (the weeklies
-usually do) show it once, after the last of them. Wide and Compact come
-in two reset styles: **Countdown** (relative, `⟲ reset in 3h`) and
+In the Wide and Compact entries, every window shows when it resets — the
+5-hour session and each weekly window have their own reset moments;
+windows sharing one (the weeklies usually do) show it once, after the
+last of them. Both come in two reset styles: **Countdown** (relative, `⟲ reset in 3h`) and
 **Inline** (absolute clock time, `⟲ resets 11pm`); Medium and Mini never
 show resets — there's no room at those sizes. Want `tail` (resets grouped
 at the end) or Wide/Compact with resets fully `off`? Those stay available
