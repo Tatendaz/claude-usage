@@ -45,7 +45,18 @@
   reproducible), which is a real constraint of the design, not a test
   bug — fixed by masking those two volatile tokens before comparing,
   inline-styled variants only.
-- Full suite: 118 tests, all passing.
+- First live test on the user's real bar failed: they dragged Mini in and
+  it rendered Wide · Countdown's text. Diagnosis ruled out a stale script
+  first (`ps` showed the AutoLaunch process started *after* the install;
+  `~/.config/iterm2/AppSupport` turned out to be a symlink into
+  `~/Library/Application Support/iTerm2`, so the running copy was current)
+  — which left the real bug: all six variants registered their status RPC
+  under one shared function name, and iTerm2 routes invocations by
+  function signature, so the first registration answered for all six.
+  Fixed by deriving a unique RPC name per variant from its identifier
+  suffix; the default variant keeps the historic `claude_usage_status`
+  name so bars configured before the split keep rendering.
+- Full suite: 119 tests, all passing.
 
 ## Decisions
 - Preserve the original component identifier

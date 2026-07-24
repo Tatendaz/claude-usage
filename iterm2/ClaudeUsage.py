@@ -63,6 +63,19 @@ VARIANTS = (
 )
 
 
+def rpc_name(suffix):
+    """RPC function name for a variant's status callback. iTerm2 routes a
+    status bar invocation to its handler by function signature — not by
+    component identifier — so every variant needs a distinct name: with a
+    shared one, whichever variant registered first answered for all six
+    (dragging Mini into the bar rendered Wide · Countdown's text). The
+    default variant keeps the pre-split name so bars configured before
+    the six-way split keep rendering."""
+    if not suffix:
+        return "claude_usage_status"
+    return "claude_usage_status_" + suffix.lstrip(".").replace("-", "_")
+
+
 def find_core():
     override = os.environ.get("CLAUDE_USAGE_BIN")
     if override and os.path.exists(os.path.expanduser(override)):
@@ -119,11 +132,14 @@ async def register_variant(connection, suffix, label, exemplar, width, style):
         identifier="dev.tatendazhou.claude-usage%s" % suffix,
     )
 
-    @iterm2.StatusBarRPC
     async def claude_usage_status(knobs):
         return latest["text"]
 
-    await component.async_register(connection, claude_usage_status)
+    claude_usage_status.__name__ = rpc_name(suffix)
+    claude_usage_status.__qualname__ = claude_usage_status.__name__
+
+    await component.async_register(
+        connection, iterm2.StatusBarRPC(claude_usage_status))
 
 
 async def main(connection):

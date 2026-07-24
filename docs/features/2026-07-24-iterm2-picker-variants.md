@@ -59,6 +59,14 @@ the fix to be "more components," not "a better knob."
   The first variant (Wide · Countdown) keeps the plugin's original
   identifier (`dev.tatendazhou.claude-usage`), so upgrading in place
   doesn't orphan a status bar that already has the old component in it.
+- Each variant's status callback registers under a unique RPC function
+  name (`rpc_name()`). iTerm2 routes a status bar invocation to its
+  handler by function signature — not by component identifier — so when
+  all six shared `claude_usage_status(knobs)`, the first registration
+  (Wide · Countdown) answered for every entry: dragging Mini into the bar
+  rendered Wide's text. Found by live-testing on a real bar, not by the
+  suite (registration only happens inside iTerm2's runtime). The default
+  variant keeps the historic name so pre-split bars keep rendering.
 - `README.md`: install steps and the width-ladder table replaced with the
   six-entry table; CLI reference gained `--width`.
 - Tests: `TestITermKnobStyle` removed (the function is gone);

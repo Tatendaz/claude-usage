@@ -127,6 +127,17 @@ class TestITermVariants(unittest.TestCase):
         self.assertEqual(suffix, "")
         self.assertEqual((width, style), ("wide", "countdown"))
 
+    def test_rpc_names_unique_and_first_is_historic(self):
+        # Regression: iTerm2 routes a status bar invocation to its handler
+        # by function signature, so identical RPC names sent every variant
+        # to the first handler — dragging Mini in rendered Wide's text.
+        names = [iterm_mod.rpc_name(suffix)
+                 for suffix, *_rest in iterm_mod.VARIANTS]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertEqual(names[0], "claude_usage_status")  # pre-split bars
+        for name in names:
+            self.assertTrue(name.isidentifier(), name)
+
     def test_widths_valid_and_style_pairing(self):
         for suffix, label, exemplar, width, style in iterm_mod.VARIANTS:
             self.assertIn(width, ("wide", "medium", "compact", "mini"), label)
