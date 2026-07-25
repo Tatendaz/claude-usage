@@ -42,7 +42,11 @@ Next steps (one-time, in iTerm2):
   2. Menu bar: Scripts → AutoLaunch → ClaudeUsage.py   (or restart iTerm2)
   3. Settings → Profiles → Session → check "Status bar enabled"
      → Configure Status Bar → drag "Claude Usage" into the active row
-  4. Sanity check any time:  claude-usage --check
+  4. Sanity check any time:  ~/.local/bin/claude-usage --check
+
+~/.local/bin is not on macOS's default PATH, and this installer does not edit
+your shell config. To type "claude-usage" without the path:
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 
 The first run may pop a macOS dialog asking to allow Keychain access to the
 "Claude Code-credentials" item — click "Always Allow".

@@ -16,6 +16,9 @@
 4. "also make sure the text is noce maybe ask Honey-copy to take a look as I
    want someone who comes here to quickly understand the product and install
    easily with no issues."
+5. "coderabbit retuned with things to fix always watch for comments after. why
+   did you stop checking?"
+6. "you can fix the CLI reference also"
 
 ## Steps taken
 - Measured every README across the account rather than guessing which were
@@ -69,15 +72,25 @@
 - **Environment variables became a table.** They were a single 7-line
   paragraph in the README; as a table in `docs/CLI.md` each variable is
   scannable, which is the whole reason to have a reference page.
-- **The README now calls the CLI by full path.** The copy review found that
-  `claude-usage --check`, the line right after `./install.sh`, could not have
-  worked on a clean Mac: `install.sh` symlinks into `~/.local/bin` and
-  deliberately never edits shell rc files, and that directory is not in
-  `/etc/paths`. The README was the only file in the repo making that
-  assumption — `AGENTS.md` and every terminal snippet already used the full
-  path. Fixed in the README, `docs/index.html`, and both runnable blocks in
-  `docs/TROUBLESHOOTING.md`, with a `PATH` export offered rather than
-  required, since the installer's not touching shell config is intentional.
+- **Every runnable line now calls the CLI by full path.** The copy review
+  found that `claude-usage --check`, the line right after `./install.sh`,
+  could not have worked on a clean Mac: `install.sh` symlinks into
+  `~/.local/bin` and deliberately never edits shell rc files, and that
+  directory is not in `/etc/paths`. The review said the README was the only
+  file making that assumption; that was wrong, and taking it at face value
+  left three more in place for a round. `docs/CLI.md`'s sample, the
+  "Reading quota programmatically" block in `AGENTS.md`, and — the one that
+  actually reaches every user — step 4 of the "Next steps" `install.sh`
+  prints on success, which handed you a failing command seconds after
+  reporting that it worked. All of them, plus `docs/index.html` and both
+  runnable blocks in `docs/TROUBLESHOOTING.md`, now use the full path, with a
+  `PATH` export
+  offered rather than required — the installer's not touching shell config is
+  intentional. The one place the bare name stays is `docs/CLI.md`'s synopsis
+  block: that is the command's name and its grammar, not a line to copy, and
+  a 24-character path prefix would push its three aligned lines to five. A
+  note directly under it says where the CLI lives and why the examples below
+  spell the path out.
 - **The `/usage` capture is in two places on purpose.** It illustrates the
   parsing description in `docs/HOW_IT_WORKS.md`, and it is also the README's
   argument: it is the only capture showing the data this tool surfaces, which

@@ -6,6 +6,10 @@ claude-usage [--format text|iterm|tmux|long|json] [--remaining]
              [--buckets LIST] [--all] [--ttl N] [--force] [--check] [--demo]
 ```
 
+`install.sh` puts the CLI at `~/.local/bin/claude-usage` — not on macOS's
+default `PATH`, so the examples below use the full path.
+[Add it to `PATH`](TROUBLESHOOTING.md) to type the bare name.
+
 ## Flags
 
 | Flag | What it does |
@@ -36,7 +40,7 @@ claude-usage [--format text|iterm|tmux|long|json] [--remaining]
 ## Sample output
 
 ```console
-$ claude-usage --format long
+$ ~/.local/bin/claude-usage --format long
 Claude usage  (updated 12s ago)
 Current session            ██░░░░░░░░░░░░░░░░░░░░░░   8% used
                             resets 4:30pm (in 2h)

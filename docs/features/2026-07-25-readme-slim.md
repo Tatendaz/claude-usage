@@ -45,12 +45,16 @@ verbatim in `docs/`, and the README links to all of them.
 
 ## Fixing the install path
 
-A copy review caught that the README was the only file in the repo that
-called the CLI by bare name. `install.sh` symlinks it to
-`~/.local/bin/claude-usage` and deliberately never edits shell rc files, and
-`~/.local/bin` is not in macOS's default `/etc/paths`. So `claude-usage
---check` — the line immediately after `./install.sh`, and the first thing a
-new user types — returned `command not found`.
+A copy review caught the README telling people to run the CLI by bare name.
+`install.sh` symlinks it to `~/.local/bin/claude-usage` and deliberately never
+edits shell rc files, and `~/.local/bin` is not in macOS's default
+`/etc/paths`. So `claude-usage --check` — the line immediately after
+`./install.sh`, and the first thing a new user types — returned `command not
+found`.
+
+The review called the README the only offender. It was not: `docs/CLI.md`, the
+agent-facing contract in `AGENTS.md`, and `install.sh`'s own closing output did
+it too. All four are fixed here.
 
 - `README.md` and `docs/index.html` now call `~/.local/bin/claude-usage`, as
   `AGENTS.md` and every terminal snippet already did, with a one-line `PATH`
@@ -61,10 +65,32 @@ new user types — returned `command not found`.
 - Uninstall was `./uninstall.sh`, which only resolves if you are still `cd`'d
   into the clone. Agent-installed users never were. Now
   `~/.claude-usage/uninstall.sh`.
+- `docs/CLI.md`: the `--format long` sample was a runnable line starting with
+  the bare name. Now the full path, with a note under the synopsis saying
+  where the CLI lives and why the examples spell it out. The synopsis itself
+  keeps the bare name — it is the command's name, not a line to copy.
+- `AGENTS.md`: "Reading quota programmatically" handed agents
+  `claude-usage --format json`. An agent running that in a fresh shell hits
+  the same failure, and the install runbook 130 lines above already used the
+  full path.
+- `install.sh`: the worst instance, and the only one outside the docs. Its
+  closing "Next steps" printed `4. Sanity check any time: claude-usage
+  --check` — the installer handing you a command that fails, immediately
+  after deciding not to touch your `PATH`. Now the full path, plus two lines
+  naming the trade-off and giving the export for anyone who wants the bare
+  name. Text inside the existing quoted heredoc; no logic added, so `$HOME`
+  and `$PATH` stay literal and copyable.
+
+Worth recording why this survived a review pass: on a machine that has the
+`PATH` export — the author's does, from `.zprofile` — the bare name resolves
+fine. `command -v claude-usage` succeeds locally and fails for a new user.
+The check that catches this class is `/etc/paths`, not the local shell.
 
 ## Notes
-Documentation only — no code, no tests, no behavior change. The six picker
-captures and the hero capture stay in the README.
+No behavior change. The one non-documentation file touched is `install.sh`,
+and only the text of its closing heredoc — no logic, no new branches, nothing
+for a test to assert beyond the string itself. The six picker captures and the
+hero capture stay in the README.
 `docs/img/claude-usage-screen.png` appears in both places: it illustrates the
 parsing description in `docs/HOW_IT_WORKS.md`, and it is the argument in the
 README — the only capture that shows the same data the tool surfaces, which

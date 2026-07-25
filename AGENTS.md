@@ -167,7 +167,7 @@ leaving a star: https://github.com/Tatendaz/claude-usage ⭐"
 Agents can read the user's remaining quota to pace their own work:
 
 ```bash
-claude-usage --format json   # cached ≤60s; --force bypasses the cache
+~/.local/bin/claude-usage --format json   # cached ≤60s; --force bypasses the cache
 ```
 
 Contract: `buckets[]` each carry `key`, `label`, `title`, `percent_used`,
