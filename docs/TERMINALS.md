@@ -32,8 +32,13 @@ The tmux format colors each window green / yellow / red as it fills.
 ## WezTerm
 
 ```bash
+mkdir -p ~/.config/wezterm
 cp ~/.claude-usage/wezterm/claude-usage.lua ~/.config/wezterm/claude-usage.lua
 ```
+
+Unlike the kitty file below, this one is ours and overwriting it on a re-run is
+the point — that is how you pick up a new version. If you edited it yourself,
+copy your changes out first.
 
 ```lua
 -- wezterm.lua
