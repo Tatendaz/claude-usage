@@ -170,3 +170,30 @@ written a `kitty.conf` — and the doc runs that copy *before* it tells you to
 edit `kitty.conf`. Added `mkdir -p` there too, then ran the whole kitty block
 against a synthetic empty `$HOME`: it installs cleanly with no `~/.config` at
 all, and still leaves a pre-existing custom `tab_bar.py` untouched.
+
+## Fourth round: two claims inherited from the old README
+
+Both flagged by the local review, both pre-existing on `main` and moved into
+`docs/TERMINALS.md` by this change, so this branch owns them now.
+
+- **"colors each window"** (`main:README.md:151`). `fmt_tmux` colours the
+  percentage text of each quota bucket. In a tmux document "window" means a
+  tmux window, so the sentence read as a claim that the plugin recolours your
+  windows. Now "each quota percentage", with the ambiguity named explicitly.
+- **`CLAUDE_USAGE_RESETS` in tmux.** The section offered the variable as the
+  easy way to change reset style, without saying that tmux runs status
+  commands from the server, which holds the environment it started with.
+  Adding the export to `~/.zshrc` does nothing to a running server.
+
+Verified rather than asserted, on tmux 3.6b against an isolated socket
+(`-L cutest`) so no real session was touched. A server started without the
+variable, then given it via a shell export, saw `UNSET`; after
+`tmux set-environment -g` it saw the value; a server started with the variable
+present saw it. So the doc now says to set it on the server or restart tmux.
+
+First two attempts at that test were wrong and worth noting: `display-message
+-p '#(...)'` returned empty for every case, and a detached session logged "no
+current client" because a status line with no attached client never renders,
+so the `#()` never ran. An empty result looked like a finding and was actually
+a broken harness — the same trap as reading silence from a review that never
+ran.

@@ -27,7 +27,9 @@ set -g status-right '#(~/.local/bin/claude-usage --format tmux) | %H:%M '
 set -g status-interval 30
 ```
 
-The tmux format colors each window green / yellow / red as it fills.
+The tmux format colors each quota percentage green / yellow / red as it fills.
+(Quota windows — the session and weekly ones. It does not touch your tmux
+windows.)
 
 ## WezTerm
 
@@ -121,3 +123,11 @@ Merge this key into `~/.claude/settings.json` (keep your existing keys):
 tmux, starship, and zsh call the CLI from a config string, so the easiest way
 to change how resets render is the `CLAUDE_USAGE_RESETS` environment variable
 rather than a flag. See the [CLI reference](CLI.md) for the available styles.
+
+In tmux, set it on the server rather than in your shell. tmux runs status
+commands from the server, which keeps the environment it was started with — so
+an export added to `~/.zshrc` afterwards does nothing until tmux restarts:
+
+```bash
+tmux set-environment -g CLAUDE_USAGE_RESETS inline
+```
