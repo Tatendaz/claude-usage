@@ -68,6 +68,7 @@ already wrote. It copies silently, and skips silently — so check the file
 rather than the exit status, which differs between BSD and GNU `cp`:
 
 ```bash
+mkdir -p ~/.config/kitty
 cp -n ~/.claude-usage/kitty/tab_bar.py ~/.config/kitty/tab_bar.py
 grep -q _draw_right_status ~/.config/kitty/tab_bar.py \
   && echo "ready" || echo "yours was left alone — merge instead"

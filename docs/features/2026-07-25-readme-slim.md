@@ -163,3 +163,10 @@ rounds earlier: an example that assumes the reader's config is empty. That
 makes three separate instances in this PR, which is a pattern rather than
 three accidents. A config snippet should be checked against "what if this
 person already has one of these" before it ships.
+
+The WezTerm guard exposed the same gap one section down: kitty's `cp` also
+writes into `~/.config/kitty`, which does not exist for anyone who has never
+written a `kitty.conf` — and the doc runs that copy *before* it tells you to
+edit `kitty.conf`. Added `mkdir -p` there too, then ran the whole kitty block
+against a synthetic empty `$HOME`: it installs cleanly with no `~/.config` at
+all, and still leaves a pre-existing custom `tab_bar.py` untouched.
