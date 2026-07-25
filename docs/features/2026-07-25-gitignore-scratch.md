@@ -16,10 +16,18 @@ why nothing has ever leaked here: `git log --all -- .scratch` is empty and
 `git ls-files .scratch/` returns nothing.
 
 The reason to add the line anyway is that nothing enforces that placement. An
-agent working inside the repo can create `.scratch/` in the repo root just as
-easily, and at that point a single `git add -A` sweeps it into a commit. The
-cost of preventing that is one line; the cost of catching it after the fact is
-a history rewrite.
+agent working inside the repo can create `.scratch/` just as easily, and at
+that point a single `git add -A` sweeps it into a commit. The cost of
+preventing that is one line; the cost of catching it after the fact is a
+history rewrite.
+
+The pattern is deliberately unanchored. `.scratch/` matches a directory of
+that name at any depth, not just the repo root, which is what the rest of this
+`.gitignore` already does — `__pycache__/`, `.pytest_cache/`, and `.DS_Store`
+are all unanchored for the same reason. A scratch directory is ephemeral
+wherever it lands, and there is no depth at which one should be tracked here,
+so `/.scratch/` would narrow the guard for no gain and make this the only
+anchored line in the file.
 
 Recorded plainly because the claim that first prompted this was wrong: during
 PR #7 the scratch files were reported as "untracked in the checkout." They
