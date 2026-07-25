@@ -103,3 +103,21 @@ iTerm2 do not scroll the 45-line gallery to find out it is not for them. The
 badge that pointed at `#pick-your-terminal` points at `docs/TERMINALS.md`.
 Every relative link and in-page anchor in the README and in the four new
 pages was resolved against the working tree before commit.
+
+## Late correction: a copy edit that broke a true claim
+
+The README's feature bullet originally read "polled every 30 s through a
+shared 60 s cache." The copy review tightened it to "refreshed every 30 s",
+which reads better and is false: `iterm2/ClaudeUsage.py:35` sets
+`REFRESH_SECONDS = 30` with the comment "how often we ask the CLI (which
+itself caches ~60s)", so the widget asks every 30 s but the number behind it
+can be up to a minute old. Restored to state both halves.
+
+Caught while re-checking the cache claims after CodeRabbit flagged the same
+class of error in `AGENTS.md`. `docs/HOW_IT_WORKS.md` had the third instance —
+"for 60 s" with no mention that `CLAUDE_USAGE_TTL` and `--ttl N` override it.
+
+The pattern worth keeping: a tightening pass optimises for how a line reads,
+not for whether it is still true, so any edit that drops a qualifier needs
+re-checking against source. Two of the three bad cache claims in this PR were
+introduced by editing, not inherited.

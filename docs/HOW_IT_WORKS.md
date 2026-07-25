@@ -18,8 +18,9 @@ It reads the same data Claude Code renders here:
    back to the legacy top-level `five_hour`/`seven_day*` buckets,
    auto-detecting whether utilization arrives as 0–1 or 0–100. Extra usage
    credits (`spend`) appear as a `credits` bucket when enabled.
-4. **Cache** in `~/.cache/claude-usage/` for 60 s, shared by every status bar;
-   on errors the last good data is served and marked stale after 5 minutes.
+4. **Cache** in `~/.cache/claude-usage/` for 60 s by default — `CLAUDE_USAGE_TTL`
+   and `--ttl N` both change that — shared by every status bar; on errors the
+   last good data is served and marked stale after 5 minutes.
 
 ## Caveat: the endpoint is undocumented
 

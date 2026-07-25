@@ -59,7 +59,7 @@ First run may pop a macOS Keychain dialog — click **Always Allow**, not
 ## What you get
 
 - **Live quota** — session, weekly, and per-model windows with reset times,
-  refreshed every 30 s. One shared cache feeds every terminal at once.
+  polled every 30 s through one 60 s cache that every terminal shares.
 - **Every claude.ai plan** — whatever windows your plan has, you see. A Fable
   or Opus week shows up on its own; nothing to configure.
 - **Zero dependencies** — one stdlib-only Python file. Everything else is a
