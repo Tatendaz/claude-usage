@@ -8,6 +8,10 @@ All of these assume `./install.sh` has already put the CLI at
 
 ## tmux
 
+Already have a `status-right`? These lines **replace** it. Keep yours and drop
+the placeholder into it instead — `#{claude_usage}` with TPM,
+`#(~/.local/bin/claude-usage --format tmux)` without.
+
 With [TPM](https://github.com/tmux-plugins/tpm):
 
 ```tmux
@@ -36,34 +40,42 @@ cp ~/.claude-usage/wezterm/claude-usage.lua ~/.config/wezterm/claude-usage.lua
 require('claude-usage').setup()
 ```
 
-`setup()` owns the right status area. If you already render your own, call
-`text()` from inside your handler instead — it has to run on every event, or
-the number freezes at whatever it was when your config loaded:
+`setup()` owns the right status area. Use it **or** the handler below, not
+both. If you already render your own right status, drop `setup()` and call
+`text()` from inside your own handler — it has to run on every event, or the
+number freezes at whatever it was when your config loaded:
 
 ```lua
 local wezterm = require 'wezterm'
 wezterm.on('update-right-status', function(window, _)
-  window:set_right_status(my_status .. '  ' .. require('claude-usage').text())
+  local mine = wezterm.strftime('%H:%M')   -- replace with whatever you render
+  window:set_right_status(mine .. '  ' .. require('claude-usage').text())
 end)
 ```
 
 ## kitty (experimental)
 
 kitty has no status bar, so this draws the quota at the right edge of the tab
-bar (the community custom-tab-bar pattern):
+bar (the community custom-tab-bar pattern).
+
+kitty allows exactly one `tab_bar.py`, so `-n` refuses to clobber one you
+already wrote. It copies silently, and skips silently — so check the file
+rather than the exit status, which differs between BSD and GNU `cp`:
 
 ```bash
-cp ~/.claude-usage/kitty/tab_bar.py ~/.config/kitty/tab_bar.py
+cp -n ~/.claude-usage/kitty/tab_bar.py ~/.config/kitty/tab_bar.py
+grep -q _draw_right_status ~/.config/kitty/tab_bar.py \
+  && echo "ready" || echo "yours was left alone — merge instead"
 ```
+
+If it said merge, copy `status_text`, `find_core`, and `_draw_right_status`
+out of `~/.claude-usage/kitty/tab_bar.py` into your own file by hand.
 
 ```conf
 # kitty.conf
 tab_bar_style custom
 tab_bar_min_tabs 1
 ```
-
-Already have a custom `tab_bar.py`? Merge `status_text`, `find_core`, and
-`_draw_right_status` into it instead of overwriting.
 
 ## starship
 

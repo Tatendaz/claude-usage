@@ -124,3 +124,42 @@ The pattern worth keeping: a tightening pass optimises for how a line reads,
 not for whether it is still true, so any edit that drops a qualifier needs
 re-checking against source. Two of the three bad cache claims in this PR were
 introduced by editing, not inherited.
+
+## Third review round: snippets that clobber existing config
+
+The full PR review — which only ran after two triggers silently no-opped —
+found three issues, all in pages this change created.
+
+- **`docs/TERMINALS.md`, tmux (major).** Both snippets `set -g status-right`
+  wholesale, so anyone who already had one lost it. They now open with what
+  they replace and how to keep yours.
+- **`docs/TERMINALS.md`, kitty (major).** The `cp` overwrote an existing
+  custom `tab_bar.py`, and the "merge instead" warning sat nine lines *below*
+  the command that destroyed the file. Now `cp -n`, which refuses to clobber,
+  with the warning above it. `cp -n` is silent whether it copies or skips, so
+  the doc first told readers to read the exit status — 0 copied, 1 skipped.
+  That is BSD behaviour, verified on macOS, and GNU `cp` does not agree, so a
+  Linux kitty user would have been told the opposite of the truth. Replaced
+  with a `grep` for `_draw_right_status` in the installed file, which asks
+  what actually happened rather than how this platform reports it. Tested in
+  both the file-exists and file-absent cases.
+- **`docs/TERMINALS.md`, WezTerm (minor).** The handler example referenced
+  `my_status`, which is defined nowhere; pasting it raises "attempt to
+  concatenate a nil value". This was a half-finished fix from the previous
+  round — that round corrected *when* `text()` is called and left the
+  undefined variable in place. Now a defined placeholder
+  (`wezterm.strftime('%H:%M')`), and the prose says to use `setup()` or the
+  handler, not both. Snippet syntax-checked with `luac -p`.
+- **`docs/TROUBLESHOOTING.md` (minor).** The rate-limit row claimed "it backs
+  off through the cache." It does not back off at all. On a 429 `get_usage()`
+  returns the cached payload without advancing `fetched_at`, so the freshness
+  check at `bin/claude-usage:223` stays false and every subsequent poll
+  re-hits the endpoint. Confirmed by driving `get_usage()` with a stubbed
+  429: three polls, three network attempts, `fetched_at` unchanged. Reworded
+  to say what it does — serves the last cached values and retries next poll.
+
+The tmux and kitty findings are the same defect as the zsh `RPROMPT` bug two
+rounds earlier: an example that assumes the reader's config is empty. That
+makes three separate instances in this PR, which is a pattern rather than
+three accidents. A config snippet should be checked against "what if this
+person already has one of these" before it ships.

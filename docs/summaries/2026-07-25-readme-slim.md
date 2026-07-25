@@ -109,3 +109,22 @@
   made roughly half of readers scroll a 45-line gallery to learn it was not
   for them. "iTerm2 status bar" plus a skip link to `#other-terminals` lets
   them leave immediately.
+- Chased the PR-side review when it went quiet: mapped every submitted review
+  to its commit SHA and found the newest pointed at `e6147ca` while the head
+  was two commits further on. Both `@coderabbitai review` and `full review`
+  had replied "Action performed" without submitting anything, because
+  automatic reviews were paused. Resumed them and re-triggered; the review
+  that eventually landed carried a major finding, so the silence had been
+  hiding real problems rather than confirming their absence.
+- Verified all three of that review's findings by execution rather than
+  reading: drove `get_usage()` with a stubbed 429 to prove no backoff exists,
+  tested `cp -n` in both the file-exists and file-absent cases to establish
+  that it is silent either way, and syntax-checked the corrected WezTerm Lua
+  with `luac -p`.
+- Got caught generalising from one machine. The `cp -n` fix documented the
+  exit status as the way to tell a copy from a skip, which is true for BSD
+  `cp` and wrong for GNU — a Linux kitty user would have read the opposite of
+  the truth. The local review flagged it. The rule that survives: running a
+  command proves what it does *here*, and a doc claim needs to hold wherever
+  the reader is. Now the doc greps the installed file for
+  `_draw_right_status`, which is the same answer on every platform.
