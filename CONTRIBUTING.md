@@ -15,7 +15,9 @@ Thanks for helping! A few ground rules keep this project small and safe:
 
 ## Workflow
 
-1. Branch from `main` (`feat/<slug>` or `fix/<slug>`).
+1. Fork the repo, then branch from `main` (`feat/<slug>` or `fix/<slug>`).
+   Only maintainers can push branches here directly; everyone else works
+   from a fork and opens the PR across from it.
 2. Add tests for anything you change — the suite must stay free of
    network, Keychain, and real-cache access:
    `python3 -m unittest discover -s tests -v`

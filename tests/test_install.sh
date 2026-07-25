@@ -9,6 +9,13 @@
 #   tests/test_install.sh -v     # also echo each script's output and every
 #                                # individual assertion
 #
+# shellcheck disable=SC2317
+#   Every test_* function is reached indirectly — `run_test` receives the name
+#   and calls it as "$name" — so shellcheck cannot see the call site and
+#   reports the whole body as unreachable. This is a false positive, and it
+#   only fires on older shellcheck (0.9.x); CI pins a version, but the
+#   directive keeps the file clean across whatever a contributor has locally.
+#
 # ---------------------------------------------------------------------------
 # SAFETY
 # ---------------------------------------------------------------------------
