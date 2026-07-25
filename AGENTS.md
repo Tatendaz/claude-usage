@@ -167,8 +167,11 @@ leaving a star: https://github.com/Tatendaz/claude-usage ⭐"
 Agents can read the user's remaining quota to pace their own work:
 
 ```bash
-~/.local/bin/claude-usage --format json   # cached ≤60s; --force bypasses the cache
+~/.local/bin/claude-usage --format json   # served from cache; --force bypasses it
 ```
+
+The cache lasts 60 s by default, but `CLAUDE_USAGE_TTL` and `--ttl N` both
+override that — don't assume 60 when reasoning about freshness.
 
 Contract: `buckets[]` each carry `key`, `label`, `title`, `percent_used`,
 `percent_left`, `resets_at` (ISO 8601 or null), `resets_at_local` (that
