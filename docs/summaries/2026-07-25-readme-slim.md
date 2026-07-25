@@ -52,8 +52,15 @@
   forced.
 - Took a copy review of the rewrite, which caught the install bug below and a
   set of line-level tightenings; applied them.
-- Ran the full suite before pushing: 121 tests, all passing, no source
-  changed.
+- Swept the whole tree for bare-name invocations rather than trusting the
+  review's "only the README" claim, with a grep that ignores `~/`-prefixed and
+  backticked matches. That is what turned up `install.sh`, three files after
+  the ones already fixed.
+- Verified by running rather than reading, after a round where checking a
+  file's claims instead of its behaviour let two broken snippets through:
+  executed `install.sh` and read its real output, and ran
+  `--demo --format long` to confirm the documented sample still matches.
+- Ran the full suite before pushing: 121 tests, all passing.
 
 ## Decisions
 - **iTerm2 stays in the README; the other five terminals move out.** It's the
