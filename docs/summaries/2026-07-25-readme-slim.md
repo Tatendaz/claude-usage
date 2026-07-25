@@ -67,9 +67,12 @@
   only one with a picker and the only one whose setup is a UI walkthrough
   rather than two lines of config. Splitting on "flagship vs. the rest" keeps
   the README's fast path intact without duplicating anything.
-- **Moved, never deleted.** Every section that left the README exists verbatim
+- **Moved, never deleted.** Every section that left the README exists in full
   in `docs/` and is linked from a table at the bottom. The point was to stop
-  making visitors scroll past reference material, not to have less of it.
+  making visitors scroll past reference material, not to have less of it. Not
+  quite verbatim, though — the environment variables became a table, and the
+  runnable lines were corrected once the bare-name bug surfaced. Content
+  preserved, wording not frozen.
 - **Four focused pages rather than one `docs/REFERENCE.md`.** They're linked
   individually from the README table, so a visitor navigates straight to
   troubleshooting or the flag table without scanning a combined page.

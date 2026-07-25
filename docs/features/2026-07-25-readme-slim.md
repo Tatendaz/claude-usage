@@ -18,7 +18,10 @@ two costs both: the fast path gets buried, and the reference is awkward to
 scan inside a marketing page.
 
 Nothing was cut for length's sake — every section that left the README exists
-verbatim in `docs/`, and the README links to all of them.
+in full in `docs/`, and the README links to all of them. "In full" rather than
+"verbatim": the content is all there, but reformatted where the new home made
+it clearer (the environment variables became a table) and corrected where the
+move exposed a stale line.
 
 ## What changed
 - `README.md`: 316 → 153 lines, 1,763 → 804 words, 22 → 7 headings. Kept the
