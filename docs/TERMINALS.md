@@ -126,7 +126,7 @@ rather than a flag. See the [CLI reference](CLI.md) for the available styles.
 
 In tmux, set it on the server rather than in your shell. tmux runs status
 commands from the server, which keeps the environment it was started with — so
-an export added to `~/.zshrc` afterwards does nothing until tmux restarts:
+an export added to `~/.zshrc` afterward does nothing until tmux restarts:
 
 ```bash
 tmux set-environment -g CLAUDE_USAGE_RESETS inline
