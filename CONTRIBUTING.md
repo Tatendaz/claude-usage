@@ -28,10 +28,15 @@ Thanks for helping! A few ground rules keep this project small and safe:
 4. Open a PR. CI runs tests, checks that source changes come with test
    changes, and checks the docs entries.
 
-`main` is protected: pull requests are the only way in, force-pushes are
-off, and a PR needs every required check green plus one approving review
-from the code owner (@Tatendaz). You can't approve your own PR — GitHub
-doesn't allow it — so everything gets a second pair of eyes.
+Merging to `main` requires a pull request: force-pushes are off, and a PR
+needs every required check green plus one approving review from the code
+owner (@Tatendaz). You can't approve your own PR — GitHub doesn't allow it
+— so everything gets a second pair of eyes.
+
+These are enforced by the `protect-main` branch ruleset, applied when the
+change that introduced this file lands. If you're reading this on that PR
+itself, the rules above are the agreed policy rather than something GitHub
+is already blocking on.
 
 ## Branch names
 
