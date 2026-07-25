@@ -19,6 +19,8 @@
 5. "coderabbit retuned with things to fix always watch for comments after. why
    did you stop checking?"
 6. "you can fix the CLI reference also"
+7. (next session) "/review" → PR #7
+8. "fix the troubleshooting rate-limit row and push"
 
 ## Steps taken
 - Measured every README across the account rather than guessing which were
@@ -61,6 +63,10 @@
   executed `install.sh` and read its real output, and ran
   `--demo --format long` to confirm the documented sample still matches.
 - Ran the full suite before pushing: 121 tests, all passing.
+- Reviewed the open PR from a fresh session and traced each doc claim to the
+  code that backs it. Everything held except the rate-limit troubleshooting
+  row, whose explanation described a state the message cannot be seen in.
+  Fixed it and re-ran the suite: 121 tests, still passing.
 
 ## Decisions
 - **iTerm2 stays in the README; the other five terminals move out.** It's the

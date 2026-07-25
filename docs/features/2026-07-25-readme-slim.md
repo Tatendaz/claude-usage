@@ -197,3 +197,21 @@ current client" because a status line with no attached client never renders,
 so the `#()` never ran. An empty result looked like a finding and was actually
 a broken harness — the same trap as reading silence from a review that never
 ran.
+
+## Fifth round: the rate-limit row described a state it can't be seen in
+
+The third round replaced "it backs off through the cache" — false — with "it
+shows your last cached values and tries again on the next poll." The second
+half is right; the first half describes the one case where that message never
+appears.
+
+`error_line()` is reached only from the `if not buckets:` branch of `main()`
+(`bin/claude-usage:766`), so `✳ rate-limited, retrying` renders exactly when
+there was nothing to fall back on. A 429 with a usable cache returns that
+cache from `get_usage()`, `buckets` is non-empty, and the bar shows the
+numbers instead. The row now says that, and keeps the accurate half: no
+growing backoff, because `fetched_at` is never advanced on the error path.
+
+Two rounds, two wrong explanations of the same row, both written while
+reading only the function that formats the message. The check that would have
+caught either is asking where the string is printed from, not what it says.
