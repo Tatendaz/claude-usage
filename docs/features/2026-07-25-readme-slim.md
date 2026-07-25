@@ -9,7 +9,7 @@ reference, six terminals' worth of config, the internals, and a
 troubleshooting table — all of which a first-time visitor has to scroll past
 to find out whether the thing is for them. That reference material now lives
 in four pages under `docs/`, linked from a table at the bottom of the README.
-The README is 137 lines and keeps every screenshot.
+The README is 153 lines and keeps every screenshot.
 
 ## Motivation
 A README's job is to get a stranger from "what is this" to "it's running" in
@@ -21,7 +21,7 @@ Nothing was cut for length's sake — every section that left the README exists
 verbatim in `docs/`, and the README links to all of them.
 
 ## What changed
-- `README.md`: 316 → 137 lines, 1,763 → 745 words, 22 → 7 headings. Kept the
+- `README.md`: 316 → 153 lines, 1,763 → 804 words, 22 → 7 headings. Kept the
   hero, the specimen line, both install paths, a tightened "What you get",
   the full six-entry iTerm2 picker gallery, and uninstall. Added a
   documentation table linking every page.

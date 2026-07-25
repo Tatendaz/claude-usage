@@ -34,8 +34,17 @@ cp ~/.claude-usage/wezterm/claude-usage.lua ~/.config/wezterm/claude-usage.lua
 ```lua
 -- wezterm.lua
 require('claude-usage').setup()
--- or, if you already render your own right status:
---   my_status = require('claude-usage').text()
+```
+
+`setup()` owns the right status area. If you already render your own, call
+`text()` from inside your handler instead — it has to run on every event, or
+the number freezes at whatever it was when your config loaded:
+
+```lua
+local wezterm = require 'wezterm'
+wezterm.on('update-right-status', function(window, _)
+  window:set_right_status(my_status .. '  ' .. require('claude-usage').text())
+end)
 ```
 
 ## kitty (experimental)
@@ -69,10 +78,17 @@ format = "[$output]($style) "
 ## Plain zsh (works in any terminal)
 
 ```zsh
-# ~/.zshrc
-claude_usage_rprompt() { RPROMPT="$(~/.local/bin/claude-usage 2>/dev/null)" }
+# ~/.zshrc — appends to whatever RPROMPT you already have
+claude_usage_rprompt() {
+  : ${_claude_usage_base=$RPROMPT}   # your own RPROMPT, captured once
+  RPROMPT="${_claude_usage_base:+$_claude_usage_base }$(~/.local/bin/claude-usage 2>/dev/null)"
+}
 precmd_functions+=(claude_usage_rprompt)
 ```
+
+The capture has to happen inside the function: `precmd` runs after the rest of
+your `.zshrc`, so reading `RPROMPT` any earlier would miss a prompt set below
+this snippet.
 
 ## Claude Code statusline
 
