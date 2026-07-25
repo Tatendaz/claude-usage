@@ -4,15 +4,19 @@
 
 **Your Claude quota, live in the terminal status bar.**
 
-The same numbers as Claude Code's `/usage` screen — the 5-hour session
-window, the weekly window, and per-model weekly windows — always visible,
-so you know how much quota you have left before you start something big.
+Know how much you have left before you start something big — no `/usage`
+check, no surprise mid-task. Every window Claude Code tracks: the 5-hour
+session, the weekly, and per-model weeklies.
 
 ![claude-usage in the iTerm2 status bar](docs/img/picker-wide-countdown.png)
 
 ```
 ✳ Usage 5h 8% ⟲ reset in 2h · week 10% · fable 17% ⟲ reset in 3d
 ```
+
+It reads the same data Claude Code shows here:
+
+<img src="docs/img/claude-usage-screen.png" width="640" alt="Claude Code /usage screen">
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python: stdlib only](https://img.shields.io/badge/python-3.9%2B%20·%20zero%20deps-3776AB.svg)](bin/claude-usage)
@@ -21,6 +25,10 @@ so you know how much quota you have left before you start something big.
 </div>
 
 ## Install
+
+**Before you start:** you need to be logged into Claude Code with a claude.ai
+account — any plan. (API key, Bedrock, and Vertex setups have no quota to
+report.)
 
 **With an AI agent** — paste this into Claude Code (or any coding agent):
 
@@ -35,29 +43,36 @@ widget into iTerm2's status bar — it will tell you when.
 ```bash
 git clone https://github.com/Tatendaz/claude-usage.git ~/.claude-usage
 cd ~/.claude-usage
-./install.sh          # CLI → ~/.local/bin, iTerm2 component → AutoLaunch
-claude-usage --check  # verifies credentials + endpoint end-to-end
+./install.sh                       # CLI → ~/.local/bin, iTerm2 component → AutoLaunch
+~/.local/bin/claude-usage --check  # verifies credentials + endpoint end-to-end
 ```
 
-Requires being logged into Claude Code with a claude.ai account (any plan —
-Pro, Max, Team, Enterprise). The first Keychain access may pop a macOS
-dialog: click **Always Allow**.
+`~/.local/bin` isn't on macOS's default `PATH`. To type `claude-usage` bare:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+First run may pop a macOS Keychain dialog — click **Always Allow**, not
+"Allow", or it asks again every refresh.
 
 ## What you get
 
 - **Live quota** — session, weekly, and per-model windows with reset times,
-  polled every 30 s through a shared 60 s cache. One cache feeds every
-  terminal you use.
-- **Every claude.ai plan** — windows render dynamically, so per-model buckets
-  (a Fable or Opus week) appear automatically when your plan has them.
+  refreshed every 30 s. One shared cache feeds every terminal at once.
+- **Every claude.ai plan** — whatever windows your plan has, you see. A Fable
+  or Opus week shows up on its own; nothing to configure.
 - **Zero dependencies** — one stdlib-only Python file. Everything else is a
   thin adapter.
-- **Honest degradation** — offline shows your last good numbers marked `✳~`,
-  an expired login says so, and `!` flags any window ≥ 90 % used.
+- **Fails honestly** — offline, it shows your last good numbers marked `✳~`;
+  an expired login says so instead of showing zeros; `!` flags any window
+  ≥ 90 % full.
 
-## Pick your look (iTerm2)
+## iTerm2 status bar
 
-`install.sh` already placed the component. Then, once:
+Not on iTerm2? Skip to [other terminals](#other-terminals).
+
+`install.sh` already placed the component — these three steps are one-time:
 
 1. **Settings → General → Magic → Enable Python API** (accept the Python
    runtime download if offered).
@@ -67,9 +82,11 @@ dialog: click **Always Allow**.
    Bar** → drag the **Claude Usage** entry you want into the row. Not seeing
    them? Scroll down — script components sit below the built-in ones.
 
-Six ready-made entries, previewed right where you drag them from. Every
-capture below is a real status bar; the green outline marks the component.
-Widest first:
+You should now see `✳ Usage 5h 8% …` in the bar. Nothing there? →
+[Troubleshooting](docs/TROUBLESHOOTING.md).
+
+Six entries, widest first. Each capture is a real status bar — the green
+outline marks the component.
 
 **Wide · Countdown** — the default. Labels, percentages, and how long until
 each window resets.
@@ -99,11 +116,10 @@ Wide.
 
 ![Mini in the iTerm2 status bar](docs/img/picker-mini.png)
 
-In Wide and Compact, every window shows its own reset; windows that share one
-(the weeklies usually do) show it once, after the last of them. Medium and
-Mini never show resets — no room. Two more styles, `tail` and full-width
-`off`, are available outside the picker via `--resets` — see
-[the CLI reference](docs/CLI.md).
+Wide and Compact show each window's reset; windows that reset together — the
+weeklies usually do — share one mark. Medium and Mini have no room for
+resets. Two more styles, `tail` and full-width `off`, are available outside
+the picker via `--resets` — see [the CLI reference](docs/CLI.md).
 
 *Upgrading from v1.0.0 and already had **Claude Usage** in your bar? It's
 **Wide · Countdown** now — same identifier, nothing to re-add.*
@@ -127,7 +143,7 @@ each a two-line setup — see **[docs/TERMINALS.md](docs/TERMINALS.md)**.
 ## Uninstall
 
 ```bash
-./uninstall.sh   # removes the CLI link, iTerm2 component, and cache
+~/.claude-usage/uninstall.sh   # removes the CLI link, iTerm2 component, and cache
 ```
 
 ---

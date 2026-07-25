@@ -11,6 +11,11 @@
    of the different Claude usage menu bars, so that is important. The rest is
    up to you. Maybe instructions for agents can be a link to the agents.md
    file, if any, or something. The rest is up to you."
+3. "text color is not visible maybe just a render issue" (with a screenshot of
+   the preview page)
+4. "also make sure the text is noce maybe ask Honey-copy to take a look as I
+   want someone who comes here to quickly understand the product and install
+   easily with no issues."
 
 ## Steps taken
 - Measured every README across the account rather than guessing which were
@@ -33,6 +38,17 @@
 - Rendered the result through GitHub's own `/markdown` API into a tabbed
   local page (new README, old README, and the four new pages, images inlined
   as data URIs) and served it in the browser for review before opening the PR.
+- Rebuilt the preview after the user reported unreadable text. The cause was
+  the combined `github-markdown.css`, which flips text colour on
+  `prefers-color-scheme: dark` while the page's card background stays
+  hardcoded light — so on a Mac in dark mode the README rendered near-white
+  text on white. Replaced it with the light and dark stylesheets fetched
+  separately and each scoped under `[data-theme]`, plus an explicit toggle, so
+  no media query can desynchronise text from background. Verified by
+  screenshotting both themes headlessly, including with the OS dark preference
+  forced.
+- Took a copy review of the rewrite, which caught the install bug below and a
+  set of line-level tightenings; applied them.
 - Ran the full suite before pushing: 121 tests, all passing, no source
   changed.
 
@@ -53,3 +69,20 @@
 - **Environment variables became a table.** They were a single 7-line
   paragraph in the README; as a table in `docs/CLI.md` each variable is
   scannable, which is the whole reason to have a reference page.
+- **The README now calls the CLI by full path.** The copy review found that
+  `claude-usage --check`, the line right after `./install.sh`, could not have
+  worked on a clean Mac: `install.sh` symlinks into `~/.local/bin` and
+  deliberately never edits shell rc files, and that directory is not in
+  `/etc/paths`. The README was the only file in the repo making that
+  assumption — `AGENTS.md` and every terminal snippet already used the full
+  path. Fixed in the README, `docs/index.html`, and both runnable blocks in
+  `docs/TROUBLESHOOTING.md`, with a `PATH` export offered rather than
+  required, since the installer's not touching shell config is intentional.
+- **The `/usage` capture is in two places on purpose.** It illustrates the
+  parsing description in `docs/HOW_IT_WORKS.md`, and it is also the README's
+  argument: it is the only capture showing the data this tool surfaces, which
+  is the pitch. Duplicating one image is cheaper than explaining it in prose.
+- **The iTerm2 section is named for its terminal.** "Pick your look (iTerm2)"
+  made roughly half of readers scroll a 45-line gallery to learn it was not
+  for them. "iTerm2 status bar" plus a skip link to `#other-terminals` lets
+  them leave immediately.

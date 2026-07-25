@@ -43,12 +43,37 @@ verbatim in `docs/`, and the README links to all of them.
   `AGENTS.md` row; "Development" into its `CONTRIBUTING.md` row. Both
   documents already say everything those sections did.
 
+## Fixing the install path
+
+A copy review caught that the README was the only file in the repo that
+called the CLI by bare name. `install.sh` symlinks it to
+`~/.local/bin/claude-usage` and deliberately never edits shell rc files, and
+`~/.local/bin` is not in macOS's default `/etc/paths`. So `claude-usage
+--check` — the line immediately after `./install.sh`, and the first thing a
+new user types — returned `command not found`.
+
+- `README.md` and `docs/index.html` now call `~/.local/bin/claude-usage`, as
+  `AGENTS.md` and every terminal snippet already did, with a one-line `PATH`
+  export offered for anyone who wants the bare name.
+- `docs/TROUBLESHOOTING.md`: same fix in both runnable blocks, plus a new
+  first table row for `command not found` — the most likely first failure had
+  no entry.
+- Uninstall was `./uninstall.sh`, which only resolves if you are still `cd`'d
+  into the clone. Agent-installed users never were. Now
+  `~/.claude-usage/uninstall.sh`.
+
 ## Notes
 Documentation only — no code, no tests, no behavior change. The six picker
-captures and the hero capture stay in the README; only
-`docs/img/claude-usage-screen.png` moved, into `docs/HOW_IT_WORKS.md` beside
-the parsing description it illustrates.
+captures and the hero capture stay in the README.
+`docs/img/claude-usage-screen.png` appears in both places: it illustrates the
+parsing description in `docs/HOW_IT_WORKS.md`, and it is the argument in the
+README — the only capture that shows the same data the tool surfaces, which
+is the whole pitch.
 
-The badge that pointed at `#pick-your-terminal` now points at
-`docs/TERMINALS.md`. Every relative link in the README and in the four new
+Two anchors moved with the "Pick your look (iTerm2)" → "iTerm2 status bar"
+rename: `docs/TERMINALS.md` now points at `#iterm2-status-bar`, and the
+section opens with a skip link to `#other-terminals` so the readers not on
+iTerm2 do not scroll the 45-line gallery to find out it is not for them. The
+badge that pointed at `#pick-your-terminal` points at `docs/TERMINALS.md`.
+Every relative link and in-page anchor in the README and in the four new
 pages was resolved against the working tree before commit.

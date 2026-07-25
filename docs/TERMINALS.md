@@ -1,6 +1,6 @@
 # Terminal setup
 
-iTerm2 is covered in the [README](../README.md#pick-your-look-iterm2) — it's
+iTerm2 is covered in the [README](../README.md#iterm2-status-bar) — it's
 the only one with a picker. Everything else is here.
 
 All of these assume `./install.sh` has already put the CLI at
