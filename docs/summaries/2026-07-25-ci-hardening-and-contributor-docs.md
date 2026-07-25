@@ -19,22 +19,18 @@
 - Wrote `tests/test_install.sh` before touching CI, because the audit's
   strongest finding was that the shell layer had no tests at all and the
   workflow around it was the easy half.
-- **Proved the sandbox before trusting it.** This machine turned out to have
-  claude-usage genuinely installed — a real `~/.local/bin/claude-usage`
-  symlink (pointing at a *different* checkout), a real
-  `~/.cache/claude-usage/cache.json`, and a real iTerm2 AutoLaunch
-  component — so a leaky test would have destroyed a working install rather
-  than a hypothetical one. Ran the suite 5 times back to back (75
-  `install.sh`/`uninstall.sh` invocations) inside a 4-second window and
+- **Proved the sandbox before trusting it.** The development machine had a
+  real, working claude-usage install, so a leaky test would have destroyed
+  something rather than a hypothetical. Ran the suite repeatedly back to back
+  (dozens of `install.sh`/`uninstall.sh` invocations) inside a few seconds and
   compared **inodes**, not just checksums: the cache *directory* inode was
   unchanged, which is the direct disproof of `rm -rf` having run.
-- Chased the one thing that did change. `cache.json`'s checksum moved
-  between some snapshots, which looked alarming until `ps` turned up the
-  user's live iTerm2 component (PID 46471, running since Friday) polling the
-  CLI, and `save_cache()` turned out to write via `tempfile.mkstemp` +
-  `os.replace`. That is an atomic replace: new file inode, unchanged
-  directory inode — exactly the signature observed, and not something either
-  script under test can produce.
+- Chased the one thing that did change. The cache file's checksum moved
+  between some snapshots, which looked alarming until it traced back to a
+  terminal adapter already running on the machine and polling the CLI:
+  `save_cache()` writes via `tempfile.mkstemp` + `os.replace`. That is an
+  atomic replace — new file inode, unchanged directory inode — exactly the
+  signature observed, and not something either script under test can produce.
 - Ran a negative control instead of asserting the interlock works: copied the
   suite, deliberately removed the `export HOME=...` line, and confirmed it
   aborts with exit 99 and the FATAL banner *before* executing anything.

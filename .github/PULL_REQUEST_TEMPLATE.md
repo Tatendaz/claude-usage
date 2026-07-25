@@ -17,7 +17,9 @@ mean the checklist is satisfied.
 ## Checklist
 
 - [ ] **Branch is named `<type>/<slug>`** — one of `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`.
-      GitHub's web "Edit this file" button creates branches named `patch-1`, which fails the docs gate.
+      GitHub's web "Edit this file" button creates branches named `patch-1`. CI won't reject
+      the name itself, but the docs gate will then require `docs/features/<date>-patch-1.md`,
+      and the naming convention is enforced by a reviewer.
 - [ ] **Tests pass locally:** `python3 -m unittest discover -s tests -v`
       (and `./tests/test_install.sh` if you touched any shell script).
 - [ ] **Source changes come with test changes.** CI hard-fails a source-only diff.

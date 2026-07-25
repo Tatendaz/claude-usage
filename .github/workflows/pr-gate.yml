@@ -37,6 +37,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
 
       - name: Derive branch slug
         id: slug
@@ -89,6 +91,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
 
       - name: Check that changed source files have changed tests
         env:

@@ -76,6 +76,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -106,6 +109,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -134,6 +140,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
 
       # tests/test_install.sh runs the installed CLI with --demo, which needs
       # a python3 on PATH. Pin it rather than leaning on the runner image.
@@ -224,6 +233,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -256,6 +268,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -298,7 +313,14 @@ jobs:
 
       - name: Assert no pip manifest crept in
         run: |
-          found=$(git ls-files 'pyproject.toml' 'setup.py' 'setup.cfg' 'requirements*.txt' 'Pipfile' 'poetry.lock')
+          # Recursive pathspecs (':(glob)**/'). A bare 'pyproject.toml'
+          # pathspec matches only the repo root, so a manifest added under
+          # any subdirectory would walk straight past this guard.
+          found=$(git ls-files -- \
+            ':(glob)**/pyproject.toml'    ':(glob)**/setup.py' \
+            ':(glob)**/setup.cfg'         ':(glob)**/requirements*.txt' \
+            ':(glob)**/Pipfile'           ':(glob)**/poetry.lock' \
+            'pyproject.toml' 'setup.py' 'setup.cfg' 'requirements*.txt' 'Pipfile' 'poetry.lock')
           if [ -n "$found" ]; then
             echo "::error::dependency manifest added to a deliberately dependency-free project:"
             echo "$found"

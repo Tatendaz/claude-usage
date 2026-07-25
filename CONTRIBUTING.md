@@ -46,9 +46,12 @@ This is load-bearing, not style: the docs gate strips that prefix, turns
 any remaining `/` into `-`, and looks for docs files named after what's
 left.
 
-> Editing a file through GitHub's web UI creates a branch called
-> `patch-1`. The gate will then demand `docs/features/<date>-patch-1.md`
-> and fail your PR. Create a properly named branch instead.
+> Editing a file through GitHub's web UI creates a branch called `patch-1`.
+> Nothing in CI rejects that name outright — the gate just derives the slug
+> from it and then demands `docs/features/<date>-patch-1.md` and
+> `docs/summaries/<date>-patch-1.md`, which is not a filename anyone wants
+> in the tree. It also breaks the `<type>/<slug>` convention above, which a
+> reviewer enforces by eye rather than CI. Create a properly named branch.
 
 ## The two docs entries
 
@@ -56,10 +59,12 @@ Both are required, both must be **added by your PR** (an entry already in
 the tree from someone else's branch won't do), and the filename must be
 exactly `<YYYY-MM-DD>-<slug>.md`. Worked example:
 
-    branch:  feat/tmux-theme-support
-    slug:    tmux-theme-support
-    files:   docs/features/2026-07-25-tmux-theme-support.md
-             docs/summaries/2026-07-25-tmux-theme-support.md
+```text
+branch:  feat/tmux-theme-support
+slug:    tmux-theme-support
+files:   docs/features/2026-07-25-tmux-theme-support.md
+         docs/summaries/2026-07-25-tmux-theme-support.md
+```
 
 Match the shape of the existing entries — features says what changed and
 why, summaries says how it came to be (prompts, dead ends, decisions).
