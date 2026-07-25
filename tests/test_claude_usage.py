@@ -462,7 +462,10 @@ class TestResetRendering(unittest.TestCase):
         return self.NOW + timedelta(**delta)
 
     def test_fmt_countdown_units(self):
-        cd = lambda **d: cu.fmt_countdown(self.at(**d), self.NOW)
+        def cd(**d):
+            return cu.fmt_countdown(self.at(**d), self.NOW)
+
+
         self.assertEqual(cd(seconds=30), "now")
         self.assertEqual(cd(minutes=-10), "now")   # overdue never goes negative
         self.assertEqual(cd(minutes=5), "5m")

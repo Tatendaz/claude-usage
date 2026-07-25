@@ -707,7 +707,10 @@ def run_check(ttl):
 def demo_data():
     """Sample response in the modern `limits` shape (matches the live API)."""
     now = datetime.now(timezone.utc)
-    iso = lambda d: d.isoformat().replace("+00:00", "Z")
+
+    def iso(d):
+        return d.isoformat().replace("+00:00", "Z")
+
     return {
         "limits": [
             {"kind": "session", "group": "session", "percent": 18,
