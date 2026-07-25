@@ -10,7 +10,7 @@ session, the weekly, and per-model weeklies.
 
 ![claude-usage in the iTerm2 status bar](docs/img/picker-wide-countdown.png)
 
-```
+```text
 ✳ Usage 5h 8% ⟲ reset in 2h · week 10% · fable 17% ⟲ reset in 3d
 ```
 

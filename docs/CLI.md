@@ -1,6 +1,6 @@
 # CLI reference
 
-```
+```text
 claude-usage [--format text|iterm|tmux|long|json] [--remaining]
              [--resets countdown|inline|tail|off] [--width wide|medium|compact|mini]
              [--buckets LIST] [--all] [--ttl N] [--force] [--check] [--demo]
@@ -35,7 +35,7 @@ claude-usage [--format text|iterm|tmux|long|json] [--remaining]
 
 ## Sample output
 
-```
+```console
 $ claude-usage --format long
 Claude usage  (updated 12s ago)
 Current session            ██░░░░░░░░░░░░░░░░░░░░░░   8% used
