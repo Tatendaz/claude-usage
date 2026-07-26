@@ -1,0 +1,329 @@
+name: CI
+
+# Code-quality gate for claude-usage.
+#
+# Split of responsibility with .github/workflows/pr-gate.yml:
+#   * ci.yml      owns *correctness* — tests, shell checks, lint.
+#   * pr-gate.yml owns *process*     — the docs/features + docs/summaries
+#                                      entries, and "new code has new tests".
+# Testing lives here and only here. pr-gate.yml used to carry its own `tests`
+# job; it was removed when this file landed so there is exactly one owner of
+# the test check names.
+#
+# What is being gated matches what this repo actually ships:
+#   * bin/claude-usage  — a stdlib-only Python CLI with NO .py extension
+#                         (so every Python tool must be handed it explicitly)
+#   * install.sh / uninstall.sh / claude-usage.tmux — bash, and the primary
+#                         way users get the tool onto their machine
+#   * iterm2/, kitty/, wezterm/ — thin adapters
+#
+# There is no pyproject.toml / setup.py / requirements.txt and there must not
+# be one: "bin/claude-usage stays stdlib-only. No pip dependencies, ever"
+# (CONTRIBUTING.md). Nothing below installs a runtime dependency.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege. No job here writes to the repo, comments on a PR, or
+# publishes anything, so the token needs read access and nothing else. This
+# also pins the scope regardless of the repo/org "default workflow
+# permissions" setting, which an admin can flip to read/write.
+permissions:
+  contents: read
+
+# One in-flight run per ref. Superseded PR pushes are cancelled (the
+# docs/readme-slim PR burned 8 duplicate PR Gate runs on 2026-07-25); runs on
+# main are never cancelled, so main always ends with a complete result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Tests. The documented runner is stdlib unittest (README "Development",
+  # AGENTS.md "Development", CONTRIBUTING.md step 2) and it needs no install
+  # step at all. Verified locally: 121 tests, OK, ~1.3s.
+  #
+  # The matrix exists to defend the README's "python 3.9+ · zero deps" badge:
+  # before this landed CI only proved 3.11, so a 3.10+ only construct (match,
+  # X | Y annotations, datetime.fromisoformat("...Z")) could go green and
+  # break the advertised floor on a stock macOS python3.
+  # ---------------------------------------------------------------------
+  tests:
+    name: Tests (py${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          # This is a macOS-first tool (Keychain via `security`, iTerm2
+          # AutoLaunch), so at least one macOS leg is worth the minutes.
+          # Only a modern version here: actions/python-versions has no 3.9
+          # build for macOS arm64, which macos-latest is.
+          - os: macos-latest
+            python-version: "3.13"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The suite is hermetic by contract: "Tests must never touch the
+      # network, the Keychain, or the real cache" (AGENTS.md). Verified —
+      # urlopen is mocked and CACHE_DIR/CACHE_FILE are redirected to a
+      # TemporaryDirectory; the subprocess tests only ever shell out with
+      # --demo, which short-circuits before get_usage() and writes nothing.
+      #
+      # `claude-usage --check` must NEVER appear in CI: it makes a real
+      # request to api.anthropic.com and reads real credentials.
+      - name: Run tests (unittest — the documented runner)
+        run: python -m unittest discover -s tests -v
+
+  # ---------------------------------------------------------------------
+  # pytest is not required by the project, but contributors reach for it and
+  # the previous gate already ran it, so keep it — on one version, pinned.
+  # An unpinned `pip install pytest` is the only way a zero-dependency repo
+  # can be broken by someone else's release.
+  # ---------------------------------------------------------------------
+  pytest:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install pytest (pinned — test-only, never a runtime dep)
+        run: python -m pip install --quiet --disable-pip-version-check 'pytest==9.1.0'
+
+      - name: Run tests (pytest)
+        run: python -m pytest tests -q
+
+  # ---------------------------------------------------------------------
+  # Shell. install.sh is the front door — README and AGENTS.md both tell
+  # users (and agents) to clone and run it — so a syntax error or an unquoted
+  # path expansion lands directly in a stranger's $HOME.
+  #
+  # This job owns the shell layer end to end: static analysis first, then
+  # the behavioural suite in tests/test_install.sh. Before that suite existed
+  # a PR could rewrite install.sh with no test, no lint and no gate at all.
+  # ---------------------------------------------------------------------
+  shell:
+    name: Shell (shellcheck + bash -n + install tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
+
+      # tests/test_install.sh runs the installed CLI with --demo, which needs
+      # a python3 on PATH. Pin it rather than leaning on the runner image.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # Pinned rather than apt-installed. Ubuntu ships shellcheck 0.9.0, whose
+      # SC2317 ("command appears unreachable") fires on any function invoked
+      # indirectly — which is every test in tests/test_install.sh, since
+      # run_test calls them as "$name". A contributor on a current shellcheck
+      # sees a clean tree and CI then fails on a false positive. Pinning makes
+      # local and CI agree; bump it deliberately, not by whatever apt has.
+      - name: Install shellcheck (pinned)
+        env:
+          SHELLCHECK_VERSION: v0.11.0
+        run: |
+          set -euo pipefail
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL --retry 3 "$url" -o /tmp/shellcheck.tar.xz
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          sudo install -m 0755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+
+      # Discovery is shebang-aware, not extension-only: this repo already
+      # ships one extensionless executable (bin/claude-usage), so a future
+      # bin/<something> shell script would silently escape a *.sh glob.
+      # The python3 shebangs are excluded by the pattern.
+      - name: Collect shell scripts
+        id: collect
+        run: |
+          files=()
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            case "$f" in
+              *.sh|*.bash|*.tmux) files+=("$f"); continue ;;
+            esac
+            if head -c 2 "$f" 2>/dev/null | grep -q '#!' \
+               && head -n 1 "$f" | grep -qE '^#!.*[ /](ba|da|k|z)?sh$|^#!.*[ /](ba|da|k|z)?sh '; then
+              files+=("$f")
+            fi
+          done < <(git ls-files)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no shell scripts found — discovery is broken"
+            exit 1
+          fi
+          printf 'Found %d shell script(s):\n' "${#files[@]}"
+          printf '  %s\n' "${files[@]}"
+          printf 'files=%s\n' "${files[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: bash -n (syntax)
+        env:
+          FILES: ${{ steps.collect.outputs.files }}
+        run: |
+          for f in $FILES; do
+            printf '%s: ' "$f"
+            bash -n "$f" && echo OK
+          done
+
+      - name: shellcheck
+        env:
+          FILES: ${{ steps.collect.outputs.files }}
+        # -S style is the strictest severity and the tree already passes it;
+        # drop to `-S warning` only if a future script genuinely needs it.
+        run: shellcheck -S style --color=always $FILES
+
+      # The behavioural suite. Plain bash, no bats, no pip — a contributor
+      # runs the exact same command locally. Every case executes install.sh
+      # and uninstall.sh against a mktemp -d HOME with XDG_CACHE_HOME and
+      # XDG_CONFIG_HOME redirected too, because uninstall.sh does
+      # `rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/claude-usage"`.
+      - name: install.sh / uninstall.sh test suite
+        run: ./tests/test_install.sh -v
+
+  # ---------------------------------------------------------------------
+  # The macOS leg of the installer suite. This is a macOS-first tool and the
+  # installer is where the platform actually shows: /Applications/iTerm.app
+  # detection, "~/Library/Application Support/iTerm2/...", and BSD rather
+  # than GNU `ln`, `readlink`, `cp` and `stat`. The Linux leg runs in the
+  # `shell` job above, so this job is the other half of the matrix rather
+  # than a duplicate of it.
+  # ---------------------------------------------------------------------
+  install-smoke:
+    name: Installer smoke (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: install.sh / uninstall.sh test suite (macOS)
+        run: ./tests/test_install.sh -v
+
+  # ---------------------------------------------------------------------
+  # Python lint. Two things make this repo-specific:
+  #
+  #   1. `ruff check .` does NOT see bin/claude-usage — ruff's directory walk
+  #      only picks up *.py, and the core CLI has no extension. Verified by
+  #      planting a violation in bin/claude-usage: `ruff check .` still said
+  #      "All checks passed!", the explicit-path invocation caught it. Every
+  #      Python tool added here must name that file.
+  #   2. There is no pyproject.toml to hold config, and there should not be
+  #      one (it would invite dependencies), so rules are passed as flags.
+  #
+  # This runs ruff's default rule set with NO exemptions. The tree used to
+  # carry two E731 lambda assignments (bin/claude-usage:710,
+  # tests/test_claude_usage.py:465); both were rewritten as `def` in the same
+  # change that added this job, so no --ignore flag is needed or wanted.
+  # ---------------------------------------------------------------------
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the job's GITHUB_TOKEN in .git/config for later steps.
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff (pinned — lint-only, never a runtime dep)
+        run: python -m pip install --quiet --disable-pip-version-check 'ruff==0.14.2'
+
+      - name: Byte-compile every Python file, including the extensionless CLI
+        run: python -m py_compile bin/claude-usage iterm2/ClaudeUsage.py kitty/tab_bar.py tests/*.py
+
+      - name: ruff check
+        run: |
+          ruff check --output-format=github \
+            bin/claude-usage iterm2/ClaudeUsage.py kitty/tab_bar.py tests/
+
+      # Guard the project's single hardest rule: "bin/claude-usage stays
+      # stdlib-only. No pip dependencies, ever" (CONTRIBUTING.md). A CI check
+      # is the only thing that makes that promise enforceable.
+      - name: Assert the core CLI imports nothing outside the stdlib
+        run: |
+          python - <<'PY'
+          import ast, sys, pathlib
+          core = pathlib.Path("bin/claude-usage")
+          tree = ast.parse(core.read_text())
+          mods = set()
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  mods |= {a.name.split(".")[0] for a in node.names}
+              elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                  mods.add(node.module.split(".")[0])
+          extra = sorted(m for m in mods if m not in sys.stdlib_module_names)
+          if extra:
+              print(f"::error::bin/claude-usage imports non-stdlib module(s): {', '.join(extra)}")
+              print("CONTRIBUTING.md: the core CLI must run on a bare macOS/Linux python3.")
+              raise SystemExit(1)
+          print(f"ok: {len(mods)} imports, all stdlib: {', '.join(sorted(mods))}")
+          PY
+
+      - name: Assert no pip manifest crept in
+        run: |
+          # Recursive pathspecs (':(glob)**/'). A bare 'pyproject.toml'
+          # pathspec matches only the repo root, so a manifest added under
+          # any subdirectory would walk straight past this guard.
+          found=$(git ls-files -- \
+            ':(glob)**/pyproject.toml'    ':(glob)**/setup.py' \
+            ':(glob)**/setup.cfg'         ':(glob)**/requirements*.txt' \
+            ':(glob)**/Pipfile'           ':(glob)**/poetry.lock' \
+            'pyproject.toml' 'setup.py' 'setup.cfg' 'requirements*.txt' 'Pipfile' 'poetry.lock')
+          if [ -n "$found" ]; then
+            echo "::error::dependency manifest added to a deliberately dependency-free project:"
+            echo "$found"
+            exit 1
+          fi
+          echo "ok: still dependency-free"
