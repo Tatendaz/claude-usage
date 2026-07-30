@@ -911,6 +911,22 @@ class TestRunCheckRedaction(unittest.TestCase):
         self.assertNotIn(token, out)
         self.assertNotIn("sk-ant", out)
         self.assertIn("unrecognized", out)
+        self.assertIn("credentials found (keychain)", out)
+
+    def test_run_check_never_echoes_source_path(self):
+        creds_path = "/Users/someone/.claude/.credentials.json"
+        buf = io.StringIO()
+        with mock.patch.object(cu, "load_credentials",
+                               return_value=("tok", {}, creds_path)), \
+             mock.patch.object(cu, "load_cache", return_value={}), \
+             mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
+             mock.patch.object(cu, "fetch_usage", return_value=cu.demo_data()), \
+             mock.patch.object(cu, "save_cache"), \
+             mock.patch.object(sys, "stdout", buf):
+            cu.run_check(ttl=60)
+        out = buf.getvalue()
+        self.assertNotIn(creds_path, out)
+        self.assertIn("credentials found (credentials file)", out)
 
 
 if __name__ == "__main__":

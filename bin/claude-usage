@@ -681,7 +681,18 @@ def run_check(ttl):
     print("claude-usage self-check")
     token, meta, source = load_credentials()
     if token:
-        row(True, "credentials found (%s)" % source)
+        # comparison-selected literals only: `source` is co-returned with the
+        # token, so printing it verbatim trips clear-text-logging analysis
+        # (and the credentials-file path is better kept out of logs anyway)
+        if source == "keychain":
+            where = "keychain"
+        elif str(source).startswith("env:CLAUDE_USAGE_TOKEN"):
+            where = "environment (CLAUDE_USAGE_TOKEN)"
+        elif str(source).startswith("env:"):
+            where = "environment (CLAUDE_CODE_OAUTH_TOKEN)"
+        else:
+            where = "credentials file"
+        row(True, "credentials found (%s)" % where)
         plan = _safe_plan(meta.get("subscriptionType"))
         if plan:
             row(True, "subscription type: %s" % plan)
