@@ -699,8 +699,11 @@ def run_check(ttl):
         exp = _parse_when(meta.get("expiresAt"))
         if exp:
             live = exp > datetime.now(timezone.utc)
+            # rebuild the moment from its epoch integer so nothing string-shaped
+            # from the credential blob flows to stdout (clear-text-logging taint)
+            shown = datetime.fromtimestamp(int(exp.timestamp()), timezone.utc)
             row(live, "access token %s (%s)" % (
-                "valid until" if live else "EXPIRED at", fmt_clock(exp)))
+                "valid until" if live else "EXPIRED at", fmt_clock(shown)))
             if not live:
                 print("      open any `claude` session to refresh it, then re-run")
     else:

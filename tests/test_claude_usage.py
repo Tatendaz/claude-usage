@@ -928,6 +928,22 @@ class TestRunCheckRedaction(unittest.TestCase):
         self.assertNotIn(creds_path, out)
         self.assertIn("credentials found (credentials file)", out)
 
+    def test_run_check_expiry_row_survives_epoch_rebuild(self):
+        future = datetime.now(timezone.utc) + timedelta(hours=6)
+        oauth = {"accessToken": "tok", "expiresAt": future.isoformat()}
+        buf = io.StringIO()
+        with mock.patch.object(cu, "load_credentials",
+                               return_value=("tok", oauth, "keychain")), \
+             mock.patch.object(cu, "load_cache", return_value={}), \
+             mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
+             mock.patch.object(cu, "fetch_usage", return_value=cu.demo_data()), \
+             mock.patch.object(cu, "save_cache"), \
+             mock.patch.object(sys, "stdout", buf):
+            cu.run_check(ttl=60)
+        out = buf.getvalue()
+        self.assertIn("access token valid until", out)
+        self.assertIn(cu.fmt_clock(future), out)
+
 
 if __name__ == "__main__":
     unittest.main()
