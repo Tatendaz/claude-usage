@@ -875,5 +875,43 @@ class TestCliEndToEnd(unittest.TestCase):
         self.assertNotIn("⟲", mini)
 
 
+class TestSafePlan(unittest.TestCase):
+    def test_known_plans_pass_through(self):
+        for plan in ("pro", "Max", " TEAM "):
+            self.assertEqual(cu._safe_plan(plan), plan.strip().lower())
+
+    def test_unknown_value_is_described_not_printed(self):
+        leaked = "sk-ant-oat01-secret-looking-value"
+        out = cu._safe_plan(leaked)
+        self.assertNotIn("sk-ant", out)
+        self.assertEqual(out, "unrecognized (%d chars)" % len(leaked))
+
+    def test_empty_is_none(self):
+        self.assertIsNone(cu._safe_plan(None))
+        self.assertIsNone(cu._safe_plan(""))
+
+
+class TestRunCheckRedaction(unittest.TestCase):
+    """--check output must never echo credential material (AGENTS.md rule)."""
+
+    def test_run_check_never_echoes_credential_blob_values(self):
+        token = "sk-ant-oat01-super-secret-token"
+        oauth = {"accessToken": token, "refreshToken": "sk-ant-ort01-refresh",
+                 "subscriptionType": "sk-ant-weird-plan", "expiresAt": None}
+        buf = io.StringIO()
+        with mock.patch.object(cu, "load_credentials",
+                               return_value=(token, oauth, "keychain")), \
+             mock.patch.object(cu, "load_cache", return_value={}), \
+             mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
+             mock.patch.object(cu, "fetch_usage", return_value=cu.demo_data()), \
+             mock.patch.object(cu, "save_cache"), \
+             mock.patch.object(sys, "stdout", buf):
+            cu.run_check(ttl=60)
+        out = buf.getvalue()
+        self.assertNotIn(token, out)
+        self.assertNotIn("sk-ant", out)
+        self.assertIn("unrecognized", out)
+
+
 if __name__ == "__main__":
     unittest.main()
