@@ -139,6 +139,20 @@ def load_credentials():
     return None, {}, None
 
 
+_KNOWN_PLANS = ("enterprise", "free", "max", "pro", "team")
+
+
+def _safe_plan(value):
+    """Map the credential blob's subscriptionType onto a closed set of
+    literals. Nothing read from credential storage may be echoed verbatim
+    (AGENTS.md: never print credential material), so unknown values are
+    described, not printed."""
+    plan = str(value or "").strip().lower()
+    if not plan:
+        return None
+    return plan if plan in _KNOWN_PLANS else "unrecognized (%d chars)" % len(plan)
+
+
 # ---------------------------------------------------------------------- cache
 
 def load_cache():
@@ -668,8 +682,9 @@ def run_check(ttl):
     token, meta, source = load_credentials()
     if token:
         row(True, "credentials found (%s)" % source)
-        if meta.get("subscriptionType"):
-            row(True, "subscription type: %s" % meta["subscriptionType"])
+        plan = _safe_plan(meta.get("subscriptionType"))
+        if plan:
+            row(True, "subscription type: %s" % plan)
         exp = _parse_when(meta.get("expiresAt"))
         if exp:
             live = exp > datetime.now(timezone.utc)
