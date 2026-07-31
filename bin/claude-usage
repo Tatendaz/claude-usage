@@ -150,7 +150,13 @@ def _safe_plan(value):
     plan = str(value or "").strip().lower()
     if not plan:
         return None
-    return plan if plan in _KNOWN_PLANS else "unrecognized (%d chars)" % len(plan)
+    # return the tuple's literal, never `plan` itself: a membership test is not
+    # a taint barrier, so returning the input object (even after `in` passes)
+    # keeps credential-blob provenance alive all the way to stdout
+    for known in _KNOWN_PLANS:
+        if plan == known:
+            return known
+    return "unrecognized (%d chars)" % len(plan)
 
 
 # ---------------------------------------------------------------------- cache
