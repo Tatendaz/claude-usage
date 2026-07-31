@@ -10,7 +10,7 @@ the credential blob's `expiresAt` string. Rendered output is identical.
 
 ## Motivation
 Round 3 of CodeQL `py/clear-text-logging-sensitive-data` alert #1. After
-#10 (plan whitelist) and #11 (literal source labels), the merge scan still
+PR `#10` (plan whitelist) and PR `#11` (literal source labels), the merge scan still
 flagged the `row()` print: the remaining taint path is
 `meta["expiresAt"] → _parse_when → fmt_clock → stdout`. Passing the value
 through an integer epoch severs string provenance from credential storage
