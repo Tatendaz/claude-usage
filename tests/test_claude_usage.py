@@ -880,6 +880,16 @@ class TestSafePlan(unittest.TestCase):
         for plan in ("pro", "Max", " TEAM "):
             self.assertEqual(cu._safe_plan(plan), plan.strip().lower())
 
+    def test_known_plan_returns_the_literal_not_the_input(self):
+        # taint-barrier property: the returned object must be one of the
+        # module literals, never the (credential-derived) input string.
+        # Build the input at runtime so interning can't alias it to the
+        # tuple literal and make this pass vacuously.
+        raw = "".join(["p", "r", "o"])
+        result = cu._safe_plan(raw)
+        self.assertIsNot(result, raw)
+        self.assertTrue(any(result is known for known in cu._KNOWN_PLANS))
+
     def test_unknown_value_is_described_not_printed(self):
         leaked = "sk-ant-oat01-secret-looking-value"
         out = cu._safe_plan(leaked)
