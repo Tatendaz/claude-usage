@@ -6,7 +6,7 @@
 
 The line it keeps in your bar:
 
-```
+```text
 ✳ Usage 5h 18% ⟲ reset in 3h · week 12% · fable 19% ⟲ reset in 2d
 ```
 
@@ -16,7 +16,7 @@ The repo ships a machine-readable runbook, [AGENTS.md](https://github.com/Tatend
 
 Paste into Claude Code:
 
-```
+```text
 Install the plugin from https://github.com/Tatendaz/claude-usage
 ```
 
@@ -92,7 +92,7 @@ The core is ~830 lines of stdlib-only Python with zero dependencies and 128 test
 
 Three commands, then wire up your terminal with the [per-terminal guides](https://github.com/Tatendaz/claude-usage/blob/main/docs/TERMINALS.md).
 
-```
+```sh
 git clone https://github.com/Tatendaz/claude-usage.git ~/.claude-usage
 cd ~/.claude-usage && ./install.sh
 ~/.local/bin/claude-usage --check   # verifies credentials + endpoint end-to-end
