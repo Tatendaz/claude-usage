@@ -20,8 +20,10 @@ this page; the page now points back at it and ships the Markdown twin that the
 `rel="alternate"` to the twin, `rel="describedby"` to the covering `llms.txt`).
 
 ## What changed
-- `docs/index.html`: `<main>` wraps the header and every content section (the footer stays
-  outside); the two `<link>` tags sit after the canonical; the footer gains llms.txt and a "More work" link to the root site.
+- `docs/index.html`: `<main>` wraps the hero and every content section (the footer stays
+  outside). The hero was a `<header>`; it is now `<div class="hero">` (CSS selector renamed,
+  same rules) because boilerplate-stripping extractors drop `<header>` elements and would
+  lose the H1 with it. The two `<link>` tags sit after the canonical; the footer gains llms.txt and a "More work" link to the root site.
   No CSS change, no layout change (the stylesheet has no child selectors or `main` rules).
 - `docs/index.md`: Markdown twin of the page content, generated from the HTML and then
   hand-checked (the sample status line and the "paste into Claude Code" prompt became code blocks; the "Where it renders" table got a header row). It ends with links back to the HTML version, the
