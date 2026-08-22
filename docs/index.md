@@ -2,7 +2,7 @@
 
 **Your Claude quota, live in the terminal status bar.** Session, weekly, and per-model windows with reset times. The same numbers as `/usage`, always in view.
 
-[View on GitHub](https://github.com/Tatendaz/claude-usage) [Install](#install)
+[View on GitHub](https://github.com/Tatendaz/claude-usage) [Install](#install-by-hand)
 
 The line it keeps in your bar:
 

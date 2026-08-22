@@ -24,7 +24,7 @@ Carried over from the Tatendaz/Tatendaz.github.io session that produced its PR #
 - Patched `docs/index.html` with a shared script (`<main>` wrapper, head links, footer
   links); generated `docs/index.md` with an HTML→Markdown converter and hand-checked it
   (the sample status line and the "paste into Claude Code" prompt became code blocks; the "Where it renders" table got a header row).
-- Added `tests/test_docs_site.py (unittest; also collected by pytest)` and ran `python -m unittest discover -s tests -v`.
+- Added `tests/test_docs_site.py (unittest; also collected by pytest)` and ran `python3 -m unittest discover -s tests -v`.
 
 ## Decisions
 - `<main>` wraps the header as well as the sections: the H1 lives in the header and the

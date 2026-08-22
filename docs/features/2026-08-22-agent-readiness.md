@@ -24,13 +24,14 @@ this page; the page now points back at it and ships the Markdown twin that the
   outside). The hero was a `<header>`; it is now `<div class="hero">` (CSS selector renamed,
   same rules) because boilerplate-stripping extractors drop `<header>` elements and would
   lose the H1 with it. The two `<link>` tags sit after the canonical; the footer gains llms.txt and a "More work" link to the root site.
-  No CSS change, no layout change (the stylesheet has no child selectors or `main` rules).
+  CSS: selector-only change (the one `header` rule is now `.hero`, same declarations); no layout
+  change (the stylesheet has no child selectors or `main` rules).
 - `docs/index.md`: Markdown twin of the page content, generated from the HTML and then
   hand-checked (the sample status line and the "paste into Claude Code" prompt became code blocks; the "Where it renders" table got a header row). It ends with links back to the HTML version, the
   source, the root site and `llms.txt`.
 - `tests/test_docs_site.py (unittest; also collected by pytest)`: one `<main>`, one `<h1>` inside it, 500+ characters of text; the head links
   are present; the twin starts with the same H1, contains every H2 of the page, and is plain
-  Markdown. Run with `python -m unittest discover -s tests -v`.
+  Markdown. Run with `python3 -m unittest discover -s tests -v`.
 
 ## Notes
 - When the landing page changes, update `docs/index.md` too; the test fails if an H2 goes
