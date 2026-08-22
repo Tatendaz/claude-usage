@@ -2,7 +2,9 @@
 
 AI crawlers read the text inside <main>, the JSON-LD, and the Markdown twin that
 <link rel="alternate" type="text/markdown"> points at. These tests keep those in
-step with the HTML without touching the network.
+step with the HTML without touching the network. The custom 404 page (docs/404.html)
+gets the same treatment: it must stay short, absolute-linked, and carry plain
+Markdown pointers for agents.
 """
 
 import html
@@ -14,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SLUG = "claude-usage"
 HTML = (ROOT / "docs" / "index.html").read_text(encoding="utf-8")
 MD = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+NOT_FOUND = (ROOT / "docs" / "404.html").read_text(encoding="utf-8")
 
 
 def section(tag: str, doc: str = HTML) -> str:
@@ -80,6 +83,42 @@ class DocsSiteTests(unittest.TestCase):
         plain = twin_plain(MD)
         for block in blocks:
             self.assertIn(block, plain, f"twin is missing the text: {block[:80]!r}")
+
+
+class NotFoundPageTests(unittest.TestCase):
+    """GitHub Pages serves docs/404.html, with a real 404 status, for every missing path under /claude-usage/."""
+
+    def test_head_marks_the_page_as_a_dead_end(self):
+        head = section("head", NOT_FOUND)
+        self.assertIn("404", block_text(section("title", NOT_FOUND)))
+        self.assertIn('<meta name="robots" content="noindex">', head)
+        found = re.findall(r'<link\b[^>]*\brel="(canonical|alternate)"', head, re.I)
+        self.assertEqual(found, [], f"a 404 page has no canonical URL and no Markdown twin: {found}")
+
+    def test_main_carries_short_markdown_guidance(self):
+        main = section("main", NOT_FOUND)
+        found = re.findall(r"<(header|nav|aside|footer)\b", main, re.I)
+        self.assertEqual(found, [], f"boilerplate element(s) inside <main> would hide content: {found}")
+        self.assertLess(len(block_text(main)), 1500, "agents hit this page at every dead link; keep it short")
+        blocks = re.findall(r'<pre class="md"[^>]*>(.*?)</pre>', main, re.S)
+        self.assertEqual(len(blocks), 1, 'exactly one <pre class="md"> inside <main>')
+        md = html.unescape(blocks[0]).strip()
+        self.assertTrue(md.startswith("# 404"), f"the Markdown block must open with an H1: {md[:40]!r}")
+        self.assertIn("## Where to look next", md)
+        self.assertIn("- [Site map](https://tatendaz.github.io/sitemap.xml)", md)
+        self.assertIn("- [llms.txt](https://tatendaz.github.io/llms.txt)", md)
+        self.assertIn(f"https://tatendaz.github.io/{SLUG}/", md)
+        self.assertLess(len(md), 700, "the Markdown block is a pointer list, not a page")
+        self.assertNotRegex(md, r"<[a-z]+[\s>]", "the block must be plain Markdown, not HTML")
+
+    def test_every_url_survives_any_path_depth(self):
+        # The one file answers /claude-usage/a/b/c as well, so a relative href would resolve
+        # under the wrong directory. Only root-anchored paths, full URLs, mailto:, inline
+        # data: URIs (the favicon) and fragments are safe.
+        urls = re.findall(r'\b(?:href|src)="([^"]*)"', NOT_FOUND)
+        self.assertGreaterEqual(len(urls), 8)
+        bad = [u for u in urls if not re.match(r"(/claude-usage/|https?://|mailto:|data:|#)", u)]
+        self.assertEqual(bad, [], f"relative URL(s) would break at depth: {bad}")
 
 
 if __name__ == "__main__":
