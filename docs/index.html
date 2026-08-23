@@ -6,6 +6,8 @@
 <title>claude-usage: your Claude quota, live in the terminal status bar</title>
 <meta name="description" content="See your live Claude AI quota (session, weekly, and per-model windows with reset times) in the iTerm2, tmux, WezTerm, kitty, or starship status bar. The same numbers as Claude Code's /usage screen. One Python file, zero dependencies, MIT.">
 <link rel="canonical" href="https://tatendaz.github.io/claude-usage/">
+<link rel="alternate" type="text/markdown" href="/claude-usage/index.md" title="Markdown version of this page">
+<link rel="describedby" href="/llms.txt">
 <meta name="theme-color" content="#0d0f12">
 <meta property="og:type" content="website">
 <meta property="og:title" content="claude-usage: your Claude quota, live in the terminal status bar">
@@ -72,7 +74,7 @@
   .topbar{display:flex;justify-content:flex-end;padding-top:22px}
   .theme-btn{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;padding:6px 14px;font:500 13.5px/1.4 inherit;font-family:inherit;cursor:pointer}
   .theme-btn:hover{color:var(--text);border-color:var(--muted)}
-  header .wrap{padding-top:clamp(48px,8vw,76px);padding-bottom:var(--gap-section)}
+  .hero .wrap{padding-top:clamp(48px,8vw,76px);padding-bottom:var(--gap-section)}
   .mark{color:var(--accent);font-size:clamp(30px,4.5vw,40px);line-height:1;display:block;margin-bottom:14px}
   .mark svg{display:block}
   h1{font-size:clamp(36px,6vw,54px);letter-spacing:-.025em;line-height:1.05}
@@ -149,7 +151,8 @@
   <button class="theme-btn" id="theme-toggle" type="button" aria-label="Switch color theme">Light mode</button>
 </div>
 
-<header>
+<main>
+<div class="hero">
   <div class="wrap">
     <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 6.75V12l3.4 2"/></svg></span>
     <h1>claude-usage</h1>
@@ -164,7 +167,7 @@
       <div class="specimen-line">✳ Usage <span class="d">5h</span> <span class="ok">18%</span> <span class="d">⟲ reset in 3h</span> <span class="d">·</span> <span class="d">week</span> <span class="ok">12%</span> <span class="d">·</span> <span class="d">fable</span> <span class="ok">19%</span> <span class="d">⟲ reset in 2d</span></div>
     </div>
   </div>
-</header>
+</div>
 
 <section id="ai-install">
   <div class="wrap">
@@ -315,9 +318,10 @@ cd ~/.claude-usage &amp;&amp; ./install.sh
 }
 </script>
 
+</main>
 <footer>
   <div class="wrap">
-    <p>MIT licensed. Built by <a href="https://github.com/Tatendaz">Tatenda Zhou</a>. Source on <a href="https://github.com/Tatendaz/claude-usage">GitHub</a>.</p>
+    <p>MIT licensed. Built by <a href="https://github.com/Tatendaz">Tatenda Zhou</a>. Source on <a href="https://github.com/Tatendaz/claude-usage">GitHub</a>. <a href="https://tatendaz.github.io/">More work</a> · <a href="https://tatendaz.github.io/llms.txt">llms.txt</a></p>
     <p class="star">If this is useful, a star helps others find it.</p>
   </div>
 </footer>
