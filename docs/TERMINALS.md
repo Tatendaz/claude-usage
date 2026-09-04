@@ -88,19 +88,21 @@ tab_bar_min_tabs 1
 ## herdr
 
 [herdr](https://herdr.dev) is the agent multiplexer; its tab bar has a slot
-that runs a command on an interval and shows the last line. Add to
-`~/.config/herdr/config.toml`:
+that runs a command on an interval and shows the last line. In
+`~/.config/herdr/config.toml`, add one `command` entry to the `tab_bar_right`
+array under your existing `[ui]` table (TOML rejects a second `[ui]` header,
+and a new `tab_bar_right` would replace the entries you already have):
 
 ```toml
 [ui]
 tab_bar_right = [
   { type = "command", command = "~/.local/bin/claude-usage", interval_seconds = 30, timeout_seconds = 15 },
-  { type = "datetime", format = "%H:%M" },
+  { type = "datetime", format = "%H:%M" },   # keep whatever was there
 ]
 tab_bar_right_separator = " · "
 ```
 
-Then `herdr server reload-config`. The slot is plain text, so leave the
+Then `herdr config check`, then `herdr server reload-config`. The slot is plain text, so leave the
 format at the default `text`. Alerts can land inside herdr too: put `herdr`
 in the notification channels (see the [CLI reference](CLI.md#notifications)).
 

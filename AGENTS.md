@@ -117,8 +117,10 @@ and `_draw_right_status` into it rather than replacing the file.
 
 #### herdr
 
-Add to `~/.config/herdr/config.toml` (show the diff first; if a
-`tab_bar_right` already exists, add the command entry to it):
+Edit `~/.config/herdr/config.toml` (show the diff first). Put one
+`command` entry into the `tab_bar_right` array of the **existing** `[ui]`
+table — never add a second `[ui]` header (TOML rejects it) and never
+replace an existing `tab_bar_right` (that drops the user's entries):
 
 ```toml
 [ui]
@@ -127,7 +129,8 @@ tab_bar_right = [
 ]
 ```
 
-Then `herdr server reload-config`. If that reports a protocol mismatch, the
+Then `herdr config check` (must print `config: ok`), then
+`herdr server reload-config`. If that reports a protocol mismatch, the
 running herdr server predates the CLI: the user must restart herdr
 themselves (it closes every pane, so never do it for them). In
 § Notifications, offer the `herdr` channel to this user.
@@ -195,8 +198,10 @@ The CLI can alert the user when a window crosses a level. Full reference:
    (e.g. `"levels": [40, 70]`; `levels` overrides `preset`).
 2. **Ask where.** Exactly one question: "Where do you want the alert —
    in the terminal, as a macOS notification, or on your phone (ntfy app)?"
-   Map the answer to `channels`: `terminal`, `desktop`, `ntfy`, `herdr`
-   (any mix; offer `herdr` only when `HERDR_ENV` is set).
+   When `HERDR_ENV` is set, add "… or as a toast inside herdr?" to that
+   question. Map the answer to `channels`: `terminal`, `desktop`, `ntfy`,
+   `herdr` (any mix). One successful channel completes an alert; the
+   others are not retried.
    Guidance for the pick: `terminal` only works from a real terminal window
    (prompt, Claude Code statusline) — if their only poller is the iTerm2
    status bar or tmux, recommend `desktop`. `ntfy` needs the free ntfy app

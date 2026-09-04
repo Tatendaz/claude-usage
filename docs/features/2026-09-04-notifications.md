@@ -34,7 +34,11 @@ runbook.
   window per reset and re-arms when the window resets; entries for vanished
   windows are pruned. A window first seen above several levels fires only the
   highest one. A level is recorded only after at least one channel delivered
-  it, so a failed send retries on the next fresh fetch. Concurrency is a
+  it, so a send that fails on every channel retries on the next fresh fetch.
+  Delivery is tracked per alert, not per channel: once one channel succeeds
+  the alert is complete, and a channel that failed alongside it is not
+  retried (the user has been told; a second copy later would be noise —
+  `--notify-test` is the tool for diagnosing a broken channel). Concurrency is a
   two-phase reservation under an `flock` on `<cache dir>/notify.lock`: phase
   one (locked) re-reads the state from disk and reserves what is due in
   `notify_pending`; delivery runs unlocked; phase two (locked) records the

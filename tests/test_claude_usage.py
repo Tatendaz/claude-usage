@@ -1304,6 +1304,19 @@ class TestMaybeNotify(NotifyFixture):
             cu.maybe_notify({}, data, settings)
         self.assertEqual(send.call_count, 1)                    # delivered → recorded
 
+    def test_one_successful_channel_completes_the_alert(self):
+        # desktop delivered, ntfy failed → recorded; ntfy is not retried later
+        settings = cu.notify_settings(
+            {"notify": {"channels": ["desktop", "ntfy"], "ntfy_topic": "t"}}, {})
+        data = {"limits": [{"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}
+        mixed = {"desktop": True, "ntfy": False}
+        with mock.patch.object(cu, "send_notification", return_value=mixed) as send:
+            fired = cu.maybe_notify({}, data, settings)
+            cu.maybe_notify({}, data, settings)
+        self.assertEqual(send.call_count, 1)
+        self.assertEqual(fired[0][2], mixed)
+        self.assertEqual(list(cu.load_cache()["notified"].values()), [[50, 80, 90]])
+
     def test_reads_state_from_disk_not_stale_cache(self):
         # another process alerted after this one loaded its cache copy
         settings = cu.notify_settings({"notify": {"channels": ["desktop"]}}, {})

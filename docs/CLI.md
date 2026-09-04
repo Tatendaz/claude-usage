@@ -53,9 +53,11 @@ The CLI can alert you when a window crosses a percentage. The check rides on
 the polling your status bar already does: each fresh fetch compares every
 window against the levels, fires **one** alert per window per crossing, and
 remembers what it sent in the cache until that window resets. A level counts
-as sent only once at least one channel delivered it, so a failed send is
-retried on the next fresh fetch; a lock file keeps two status bars refreshing
-at the same moment from both alerting. No daemon, no extra process — but
+as sent once at least one channel delivered it: if every channel fails the
+alert is retried on the next fresh fetch, but a channel that fails while
+another succeeds is not (the alert reached you; use `--notify-test` to fix
+the broken channel). A lock file keeps two status bars refreshing at the
+same moment from both alerting. No daemon, no extra process — but
 nothing polls when no status bar (or prompt) is running.
 
 Settings live in `~/.config/claude-usage/config.json` (`$XDG_CONFIG_HOME`
