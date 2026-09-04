@@ -21,9 +21,11 @@ stdlib only — no dependencies.
 """
 
 import argparse
+import contextlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -236,8 +238,12 @@ def fetch_usage(token, cli_version):
         raise UsageError("network", "network error: %s" % getattr(e, "reason", e))
 
 
-def get_usage(ttl, force=False):
-    """Return (data, fetched_at, stale, error). Serves cache on failure."""
+def get_usage(ttl, force=False, notify=True):
+    """Return (data, fetched_at, stale, error). Serves cache on failure.
+
+    A fresh fetch also runs the threshold alerts (see maybe_notify) unless
+    `notify` is false; cache hits never re-check.
+    """
     cache = load_cache()
     now = time.time()
     if not force and cache.get("data") and now - cache.get("fetched_at", 0) < ttl:
@@ -252,6 +258,11 @@ def get_usage(ttl, force=False):
             data = fetch_usage(token, claude_cli_version(cache))
             cache.update({"data": data, "fetched_at": now})
             save_cache(cache)
+            if notify:
+                try:
+                    maybe_notify(cache, data)
+                except Exception as e:  # noqa: BLE001 - alerts must never break the bar
+                    debug("notify failed:", repr(e))
             return data, now, False, None
         except UsageError as e:
             err = e
@@ -674,6 +685,449 @@ def error_line(err):
     return ICON + " offline"
 
 
+# -------------------------------------------------------------- notifications
+#
+# Threshold alerts ride on the polling the status bar already does: every
+# fresh API fetch compares each window against the configured levels and
+# fires at most one alert per window per crossing. "Already sent" lives in
+# the cache under `notified`, keyed by window + reset time, so an alert
+# fires again only after that window resets.
+
+CONFIG_DIR = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "claude-usage"
+)
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+
+# Three recommendations, least chatty first. `standard` is the default.
+NOTIFY_PRESETS = {
+    "minimal": [90],
+    "standard": [50, 80, 90],
+    "early": [25, 50, 75, 90],
+}
+NOTIFY_CHANNELS = ("terminal", "desktop", "ntfy", "herdr")
+# desktop: a system notification always works, while the terminal channel
+# needs a controlling terminal that status-bar pollers don't have.
+NOTIFY_DEFAULT_CHANNELS = ["desktop"]
+# Session, all-models week and every per-model week (e.g. Fable). Matched by
+# key, key prefix before ":", label, or legacy alias — see notify_wants().
+NOTIFY_DEFAULT_BUCKETS = ["session", "weekly_all", "weekly_scoped"]
+NTFY_DEFAULT_SERVER = "https://ntfy.sh"
+NOTIFY_TITLE = "Claude usage"
+
+
+def load_config():
+    try:
+        with open(CONFIG_FILE) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _as_list(value):
+    """Accept a JSON list or a comma-separated string; drop blanks."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.split(",")
+    if not isinstance(value, (list, tuple)):
+        return None
+    out = [str(v).strip() for v in value if str(v).strip()]
+    return out
+
+
+def _as_levels(value):
+    levels = set()
+    for item in _as_list(value) or []:
+        try:
+            n = int(float(item))
+        except (ValueError, OverflowError):   # "x", "nan", "inf"
+            debug("ignoring notify level", item)
+            continue
+        if 1 <= n <= 100:
+            levels.add(n)
+    return sorted(levels)
+
+
+def notify_settings(cfg=None, env=None):
+    """Effective notification settings: config file, then env overrides.
+
+    Env: CLAUDE_USAGE_NOTIFY (channel list, or `off`), CLAUDE_USAGE_NOTIFY_PRESET,
+    CLAUDE_USAGE_NOTIFY_LEVELS, CLAUDE_USAGE_NOTIFY_BUCKETS,
+    CLAUDE_USAGE_NTFY_TOPIC, CLAUDE_USAGE_NTFY_SERVER.
+    """
+    env = os.environ if env is None else env
+    cfg = load_config() if cfg is None else cfg
+    section = cfg.get("notify") if isinstance(cfg, dict) else None
+    if not isinstance(section, dict):
+        section = {}
+
+    def pick(env_name, key):
+        raw = env.get(env_name)
+        return raw if raw is not None and raw.strip() != "" else section.get(key)
+
+    enabled = section.get("enabled", True) is not False
+    raw_channels = pick("CLAUDE_USAGE_NOTIFY", "channels")
+    if isinstance(raw_channels, str) and raw_channels.strip().lower() in ("off", "0", "false", "none"):
+        enabled = False
+        raw_channels = None
+    channels = []
+    for ch in _as_list(raw_channels) or NOTIFY_DEFAULT_CHANNELS:
+        ch = ch.lower()
+        if ch == "macos":       # friendlier alias for the popup channel
+            ch = "desktop"
+        if ch in NOTIFY_CHANNELS and ch not in channels:
+            channels.append(ch)
+        elif ch not in NOTIFY_CHANNELS:
+            debug("ignoring unknown notify channel", ch)
+
+    preset = str(pick("CLAUDE_USAGE_NOTIFY_PRESET", "preset") or "standard").strip().lower()
+    if preset not in NOTIFY_PRESETS:
+        debug("unknown notify preset", preset, "- using standard")
+        preset = "standard"
+    levels = _as_levels(pick("CLAUDE_USAGE_NOTIFY_LEVELS", "levels")) or list(NOTIFY_PRESETS[preset])
+
+    buckets = _as_list(pick("CLAUDE_USAGE_NOTIFY_BUCKETS", "buckets")) or list(NOTIFY_DEFAULT_BUCKETS)
+    topic = str(pick("CLAUDE_USAGE_NTFY_TOPIC", "ntfy_topic") or "").strip()
+    server = str(pick("CLAUDE_USAGE_NTFY_SERVER", "ntfy_server") or NTFY_DEFAULT_SERVER).strip()
+    return {
+        "enabled": enabled and bool(channels),
+        "channels": channels,
+        "preset": preset,
+        "levels": levels,
+        "buckets": buckets,
+        "ntfy_topic": topic,
+        "ntfy_server": server.rstrip("/") or NTFY_DEFAULT_SERVER,
+    }
+
+
+def notify_wants(bucket, wanted):
+    """True when a bucket matches any configured name.
+
+    `weekly_scoped` matches every per-model week (`weekly_scoped:fable`, …);
+    `weekly_scoped:fable`, `fable` and `session`/`five_hour` all work too.
+    """
+    key = bucket["key"]
+    names = {key, key.split(":", 1)[0], bucket["label"]}
+    alias = BUCKET_ALIASES.get(key)
+    if alias:
+        names.add(alias)
+    return any(w.strip().lower() in {n.lower() for n in names} for w in wanted)
+
+
+def notify_state_key(bucket):
+    resets = bucket.get("resets")
+    return bucket["key"] + "|" + (resets.isoformat() if resets else "-")
+
+
+def _levels(value):
+    """Persisted level list → set of ints; anything malformed reads as empty."""
+    if not isinstance(value, (list, tuple, set)):
+        return set()
+    return set(int(x) for x in value if isinstance(x, (int, float)))
+
+
+def due_notifications(buckets, settings, state):
+    """Return [(bucket, level, crossed)] to fire now; prunes `state` in place.
+
+    Fires only the highest crossed level per window (one alert, not three,
+    when a window is first seen at 95%). `crossed` lists every level at or
+    below the current percentage — the caller records all of them once the
+    alert is delivered (see maybe_notify), so lower levels never fire late.
+    Entries for windows that no longer exist (they reset) are dropped.
+    """
+    due = []
+    live = set()
+    for b in buckets:
+        if not notify_wants(b, settings["buckets"]):
+            continue
+        k = notify_state_key(b)
+        live.add(k)
+        sent = _levels(state.get(k))
+        crossed = [lvl for lvl in settings["levels"] if b["pct"] >= lvl]
+        new = [lvl for lvl in crossed if lvl not in sent]
+        if new:
+            due.append((b, max(new), crossed))
+        state[k] = sorted(sent)
+    for k in list(state):
+        if k not in live:
+            del state[k]
+    return due
+
+
+def mark_sent(state, bucket, levels):
+    k = notify_state_key(bucket)
+    state[k] = sorted(_levels(state.get(k)) | _levels(levels))
+
+
+def notify_message(bucket, level, now=None):
+    pct = int(round(bucket["pct"]))
+    title = "%s · %d%% reached" % (NOTIFY_TITLE, level)
+    body = "%s is at %d%% used" % (bucket["title"], pct)
+    if bucket.get("resets"):
+        body += " · resets in " + fmt_countdown(bucket["resets"], now)
+    return title, body
+
+
+def terminal_notify_sequence(title, body, env=None):
+    """OSC escape that asks the terminal itself to show a notification.
+
+    OSC 9 (iTerm2, WezTerm, ghostty, Windows Terminal); kitty speaks OSC 99.
+    Inside tmux the sequence is wrapped for passthrough, which needs
+    `set -g allow-passthrough on` in tmux.conf.
+    """
+    env = os.environ if env is None else env
+    clean = lambda s: re.sub(r"[\x00-\x1f\x7f]", " ", s)  # noqa: E731
+    title, body = clean(title), clean(body)
+    if env.get("KITTY_WINDOW_ID") or env.get("TERM", "") == "xterm-kitty":
+        seq = "\x1b]99;i=cu:d=0:p=title;%s\x1b\\\x1b]99;i=cu:d=1:p=body;%s\x1b\\" % (title, body)
+    else:
+        seq = "\x1b]9;%s: %s\x07" % (title, body)
+    if env.get("TMUX"):
+        seq = "\x1bPtmux;" + seq.replace("\x1b", "\x1b\x1b") + "\x1b\\"
+    return seq
+
+
+def send_terminal(title, body):
+    """Write the OSC sequence to the controlling terminal.
+
+    Goes to /dev/tty, not stdout, because status bars capture stdout. That
+    also means it needs a controlling terminal: prompts (zsh, starship) and
+    the Claude Code statusline have one; iTerm2's status bar component and
+    tmux's #() do not — use the desktop channel there.
+    """
+    seq = terminal_notify_sequence(title, body)
+    try:
+        with open("/dev/tty", "w") as tty:
+            tty.write(seq)
+            tty.flush()
+        return True
+    except OSError as e:
+        debug("terminal notify failed (no controlling terminal?):", e)
+        return False
+
+
+def _applescript_string(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def send_desktop(title, body):
+    """macOS notification via osascript; notify-send elsewhere."""
+    if sys.platform == "darwin":
+        cmd = ["osascript", "-e", "display notification %s with title %s"
+               % (_applescript_string(body), _applescript_string(title))]
+    else:
+        cmd = ["notify-send", "--app-name=claude-usage", title, body]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        debug("desktop notify failed:", e)
+        return False
+    if out.returncode != 0:
+        debug("desktop notify failed:", (out.stderr or "").strip()[:200])
+    return out.returncode == 0
+
+
+def send_herdr(title, body, level=0):
+    """Toast inside herdr (the agent multiplexer) through its CLI.
+
+    `herdr notification show` talks to the running herdr server over its
+    socket, so it works from any process on the machine — a herdr pane, the
+    herdr tab bar's command slot, or an iTerm2 status bar. herdr's own
+    `[ui.toast] delivery` setting decides whether that becomes an in-app
+    toast, an outer-terminal notification, or an OS notification.
+    """
+    exe = os.environ.get("HERDR_BIN_PATH") or shutil.which("herdr")
+    if not exe:
+        debug("herdr notify: herdr not installed")
+        return False
+    cmd = [exe, "notification", "show", title, "--body", body,
+           "--sound", "request" if level >= 90 else "none"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        debug("herdr notify failed:", e)
+        return False
+    if out.returncode != 0:
+        debug("herdr notify failed:", (out.stderr or "").strip()[:200])
+    return out.returncode == 0
+
+
+def send_ntfy(title, body, topic, server=NTFY_DEFAULT_SERVER, level=0):
+    """Push to an ntfy topic (phone app). JSON publish so any unicode is fine."""
+    if not topic:
+        debug("ntfy: no topic configured")
+        return False
+    payload = json.dumps({
+        "topic": topic, "title": title, "message": body,
+        "priority": 4 if level >= 90 else 3,
+        "tags": ["rotating_light" if level >= 90 else "warning"],
+    }).encode("utf-8")
+    req = urllib.request.Request(server.rstrip("/") + "/", data=payload, method="POST",
+                                 headers={"Content-Type": "application/json",
+                                          "User-Agent": "claude-usage"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        debug("ntfy failed:", getattr(e, "reason", e))
+        return False
+
+
+def send_notification(settings, title, body, level=0, channels=None):
+    """Fan out to every channel; returns {channel: ok}."""
+    results = {}
+    for ch in channels or settings["channels"]:
+        if ch == "terminal":
+            ok = send_terminal(title, body)
+        elif ch == "desktop":
+            ok = send_desktop(title, body)
+        elif ch == "ntfy":
+            ok = send_ntfy(title, body, settings["ntfy_topic"], settings["ntfy_server"], level)
+        elif ch == "herdr":
+            ok = send_herdr(title, body, level)
+        else:
+            ok = False
+        results[ch] = ok
+    return results
+
+
+@contextlib.contextmanager
+def notify_lock():
+    """Serialize the sent-state read-modify-write across CLI processes.
+
+    Several status bars can refresh in the same second; without this two of
+    them could both see a level as unsent and both alert. flock is Unix-only
+    (Windows runs unlocked and can, rarely, double-alert).
+    """
+    try:
+        import fcntl
+    except ImportError:
+        yield
+        return
+    fd = None
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        fd = os.open(os.path.join(CACHE_DIR, "notify.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError as e:
+        debug("notify lock unavailable, continuing unlocked:", e)
+    try:
+        yield
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
+
+PENDING_TTL = 60   # a reservation older than this belongs to a dead sender
+
+
+def _notify_state(latest):
+    """(sent, pending) from a cache dict, dropping junk and stale reservations."""
+    sent = latest.get("notified")
+    pending = latest.get("notify_pending")
+    sent = sent if isinstance(sent, dict) else {}
+    pending = pending if isinstance(pending, dict) else {}
+    now = time.time()
+    for k in list(pending):
+        entry = pending[k]
+        if not isinstance(entry, dict) or now - entry.get("at", 0) > PENDING_TTL:
+            debug("dropping stale notify reservation", k)
+            del pending[k]
+    return sent, pending
+
+
+def maybe_notify(cache, data, settings=None):
+    """Run the threshold check on a fresh response.
+
+    Two phases so the lock only guards state I/O, never a slow channel:
+      1. locked: re-read the sent state from disk (another process may have
+         alerted since `cache` was loaded), pick what is due, and *reserve*
+         it in `notify_pending` so a concurrent poller skips it;
+      2. unlocked: deliver;
+      3. locked: record the levels only when at least one channel delivered
+         (a failed send is retried on the next fresh fetch) and clear the
+         reservation. A reservation left behind by a killed sender expires
+         after PENDING_TTL, so it can never suppress an alert for good.
+    """
+    settings = notify_settings() if settings is None else settings
+    if not settings["enabled"]:
+        return []
+    buckets = normalize(data)
+
+    with notify_lock():
+        latest = load_cache()
+        sent, pending = _notify_state(latest)
+        # levels another process is delivering right now count as sent
+        view = {k: sorted(_levels(v) | _levels((pending.get(k) or {}).get("levels")))
+                for k, v in sent.items()}
+        for k, entry in pending.items():
+            view.setdefault(k, sorted(_levels(entry.get("levels"))))
+        due = due_notifications(buckets, settings, view)
+        for k in list(sent):
+            if k not in view:
+                del sent[k]          # window reset → its record is gone
+        for bucket, _level, crossed in due:
+            pending[notify_state_key(bucket)] = {"levels": crossed, "at": time.time()}
+        latest["notified"], latest["notify_pending"] = sent, pending
+        cache["notified"] = sent
+        save_cache(latest)
+    if not due:
+        return []
+
+    fired = []
+    for bucket, level, crossed in due:
+        title, body = notify_message(bucket, level)
+        results = send_notification(settings, title, body, level)
+        debug("notified", bucket["key"], level, results)
+        fired.append((bucket, level, crossed, results))
+
+    with notify_lock():
+        latest = load_cache()
+        sent, pending = _notify_state(latest)
+        for bucket, _level, crossed, results in fired:
+            pending.pop(notify_state_key(bucket), None)
+            if any(results.values()):
+                mark_sent(sent, bucket, crossed)
+        latest["notified"], latest["notify_pending"] = sent, pending
+        cache["notified"] = sent
+        save_cache(latest)
+    return [(b, lvl, results) for b, lvl, _c, results in fired]
+
+
+def run_notify_test(channel):
+    """Send one test alert and report per channel. Exit 0 only if all sent."""
+    settings = notify_settings()
+    channels = settings["channels"] if channel in (None, "all") else [channel]
+    print("claude-usage notification test")
+    print("  · config: %s%s" % (CONFIG_FILE, "" if os.path.exists(CONFIG_FILE) else " (not present, using defaults)"))
+    print("  · preset: %s  levels: %s" % (settings["preset"], ", ".join("%d%%" % n for n in settings["levels"])))
+    print("  · windows: %s" % ", ".join(settings["buckets"]))
+    print("  · channels: %s%s" % (", ".join(settings["channels"]) or "none",
+                                   "" if settings["enabled"] else "  (notifications off)"))
+    if not channels:
+        print("  ✗ nothing to test — set notify.channels in the config or CLAUDE_USAGE_NOTIFY")
+        return 1
+    title = NOTIFY_TITLE + " · test"
+    body = "Test alert from claude-usage. Real alerts fire at %s." % ", ".join("%d%%" % n for n in settings["levels"])
+    results = send_notification(settings, title, body, 0, channels)
+    hints = {
+        "terminal": "needs a real terminal window (not a status bar); tmux needs allow-passthrough on",
+        "desktop": "macOS: allow notifications for Script Editor in System Settings → Notifications",
+        "ntfy": "set notify.ntfy_topic (or CLAUDE_USAGE_NTFY_TOPIC) and subscribe to it in the ntfy app",
+        "herdr": "needs herdr installed and its server running (herdr status)",
+    }
+    ok = True
+    for ch, sent in results.items():
+        ok = ok and sent
+        print(("  ✓ " if sent else "  ✗ ") + ch + ("" if sent else " — " + hints[ch]))
+    print("notification test " + ("passed" if ok else "FAILED") + " (CLAUDE_USAGE_DEBUG=1 for details)")
+    return 0 if ok else 1
+
+
 # --------------------------------------------------------------------- checks
 
 def run_check(ttl):
@@ -719,6 +1173,10 @@ def run_check(ttl):
     cache = load_cache()
     print("  · user-agent: claude-code/%s" % claude_cli_version(cache))
     print("  · cache: %s (ttl %ds)" % (CACHE_FILE, ttl))
+    ns = notify_settings()
+    print("  · notify: %s at %s → %s" % (
+        "on" if ns["enabled"] else "off", "/".join("%d%%" % n for n in ns["levels"]),
+        ", ".join(ns["channels"]) or "no channel"))
 
     if token:
         try:
@@ -789,15 +1247,24 @@ def main():
     ap.add_argument("--force", action="store_true", help="ignore the cache")
     ap.add_argument("--check", action="store_true", help="run a verbose self-check")
     ap.add_argument("--demo", action="store_true", help="render sample data (no network)")
+    ap.add_argument("--notify-test", nargs="?", const="all", metavar="CHANNEL",
+                    choices=list(NOTIFY_CHANNELS) + ["all"],
+                    help="send one test alert on the configured channels "
+                         "(or just terminal|desktop|ntfy|herdr) and exit")
+    ap.add_argument("--no-notify", action="store_true",
+                    help="skip threshold alerts for this call")
     args = ap.parse_args()
 
     if args.check:
         sys.exit(run_check(args.ttl))
+    if args.notify_test:
+        sys.exit(run_notify_test(args.notify_test))
 
     if args.demo:
         data, fetched_at, stale, err = demo_data(), time.time(), False, None
     else:
-        data, fetched_at, stale, err = get_usage(args.ttl, force=args.force)
+        data, fetched_at, stale, err = get_usage(args.ttl, force=args.force,
+                                                 notify=not args.no_notify)
 
     buckets = select_buckets(normalize(data), args.buckets, args.all) if data else []
 

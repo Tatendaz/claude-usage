@@ -64,6 +64,9 @@ First run may pop a macOS Keychain dialog — click **Always Allow**, not
   or Opus week shows up on its own; nothing to configure.
 - **Zero dependencies** — one stdlib-only Python file. Everything else is a
   thin adapter.
+- **Alerts, if you want them** — a terminal, macOS, or phone (ntfy) alert
+  at 50, 80, and 90 % of each window, once per crossing per reset. See
+  [Notifications](#notifications) below.
 - **Fails honestly** — offline, it shows your last good numbers marked `✳~`;
   an expired login says so instead of showing zeros; `!` flags any window
   ≥ 90 % full.
@@ -123,6 +126,48 @@ the picker via `--resets` — see [the CLI reference](docs/CLI.md).
 
 *Upgrading from v1.0.0 and already had **Claude Usage** in your bar? It's
 **Wide · Countdown** now — same identifier, nothing to re-add.*
+
+## Notifications
+
+The status bar already polls; the alerts ride on that. Each fresh fetch
+compares the session, the week, and every per-model week (your Fable week,
+say) against the levels and fires **one** alert per window per crossing. It
+remembers what it sent until that window resets, so you are never nagged.
+
+Three channels, any mix:
+
+| Channel | What you get |
+|---|---|
+| `terminal` | the terminal's own notification (iTerm2, WezTerm, kitty, ghostty). Needs a real terminal window: prompts and the Claude Code statusline have one, the iTerm2 status bar component and tmux `#()` do not |
+| `desktop` | a macOS notification (Linux: `notify-send`). The default |
+| `herdr` | a toast inside [herdr](https://herdr.dev) if you run your agents there |
+| `ntfy` | a push to your phone through the free [ntfy](https://ntfy.sh) app, iOS and Android |
+
+Default levels are 50, 80, 90 % (`standard`). `minimal` is 90 % only,
+`early` adds 25 and 75, or set your own `levels`. Configure it in
+`~/.config/claude-usage/config.json` (or under `$XDG_CONFIG_HOME` if you set it):
+
+```json
+{
+  "notify": {
+    "preset": "standard",
+    "channels": ["desktop", "ntfy"],
+    "ntfy_topic": "claude-usage-8f3a19c2d4e6b7a1f0c9e8d7b6a5f4e3"
+  }
+}
+```
+
+Then check every channel at once:
+
+```bash
+~/.local/bin/claude-usage --notify-test
+```
+
+For the phone: install ntfy, subscribe to your topic name, done. Anyone who
+knows the topic can read the alerts, so make it long and random
+(`claude-usage-$(openssl rand -hex 16)`). The full
+reference — env overrides, `--no-notify`, what leaves your machine, the
+known ntfy iOS quirk — is in [the CLI reference](docs/CLI.md#notifications).
 
 ## Other terminals
 
