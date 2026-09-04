@@ -667,11 +667,18 @@ class TestGetUsage(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        # CONFIG_FILE too: a fresh fetch runs the threshold alerts, which must
+        # never read ~/.config or fire a real channel from a test.
         for attr, value in (("CACHE_DIR", self.tmp.name),
-                            ("CACHE_FILE", os.path.join(self.tmp.name, "c.json"))):
+                            ("CACHE_FILE", os.path.join(self.tmp.name, "c.json")),
+                            ("CONFIG_FILE", os.path.join(self.tmp.name, "none.json"))):
             patcher = mock.patch.object(cu, attr, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # and no channel can ever fire from here; TestMaybeNotify covers alerts
+        notify = mock.patch.object(cu, "maybe_notify")
+        notify.start()
+        self.addCleanup(notify.stop)
 
     def test_fresh_cache_skips_fetch(self):
         cu.save_cache({"data": {"limits": []}, "fetched_at": cu.time.time()})
@@ -953,6 +960,412 @@ class TestRunCheckRedaction(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("access token valid until", out)
         self.assertIn(cu.fmt_clock(future), out)
+
+
+class NotifyFixture(unittest.TestCase):
+    """Isolates the config file and the cache; never reads ~/.config."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.config_file = os.path.join(self.tmp.name, "config.json")
+        for attr, value in (("CACHE_DIR", self.tmp.name),
+                            ("CACHE_FILE", os.path.join(self.tmp.name, "c.json")),
+                            ("CONFIG_DIR", self.tmp.name),
+                            ("CONFIG_FILE", self.config_file)):
+            patcher = mock.patch.object(cu, attr, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def write_config(self, notify):
+        with open(self.config_file, "w") as f:
+            json.dump({"notify": notify}, f)
+
+    @staticmethod
+    def bucket(key="session", pct=0, label="5h", title="Current session", resets=None):
+        return cu._bucket(key, label, title, pct, resets)
+
+
+class TestNotifySettings(NotifyFixture):
+    def test_defaults_without_config_or_env(self):
+        s = cu.notify_settings(env={})
+        self.assertTrue(s["enabled"])
+        self.assertEqual(s["channels"], ["terminal"])
+        self.assertEqual(s["preset"], "standard")
+        self.assertEqual(s["levels"], [50, 80, 90])
+        self.assertEqual(s["buckets"], ["session", "weekly_all", "weekly_scoped"])
+        self.assertEqual(s["ntfy_topic"], "")
+        self.assertEqual(s["ntfy_server"], "https://ntfy.sh")
+
+    def test_presets(self):
+        self.assertEqual(cu.notify_settings({"notify": {"preset": "standard"}}, {})["levels"],
+                         [50, 80, 90])
+        self.assertEqual(cu.notify_settings({"notify": {"preset": "early"}}, {})["levels"],
+                         [25, 50, 75, 90])
+        self.assertEqual(cu.notify_settings({"notify": {"preset": "minimal"}}, {})["levels"], [90])
+        # unknown preset falls back to standard instead of crashing the status bar
+        self.assertEqual(cu.notify_settings({"notify": {"preset": "loud"}}, {})["levels"],
+                         [50, 80, 90])
+
+    def test_config_file_is_read(self):
+        self.write_config({"channels": ["desktop", "ntfy"], "levels": [40, 60],
+                           "buckets": ["fable"], "ntfy_topic": "t1",
+                           "ntfy_server": "https://ntfy.example/"})
+        s = cu.notify_settings(env={})
+        self.assertEqual(s["channels"], ["desktop", "ntfy"])
+        self.assertEqual(s["levels"], [40, 60])
+        self.assertEqual(s["buckets"], ["fable"])
+        self.assertEqual(s["ntfy_topic"], "t1")
+        self.assertEqual(s["ntfy_server"], "https://ntfy.example")
+
+    def test_env_overrides_file(self):
+        self.write_config({"channels": ["desktop"], "levels": [40], "ntfy_topic": "file"})
+        env = {"CLAUDE_USAGE_NOTIFY": "macos, ntfy, bogus",
+               "CLAUDE_USAGE_NOTIFY_LEVELS": "80, 95, 0, 101, x",
+               "CLAUDE_USAGE_NOTIFY_BUCKETS": "session",
+               "CLAUDE_USAGE_NTFY_TOPIC": "env"}
+        s = cu.notify_settings(env=env)
+        self.assertEqual(s["channels"], ["desktop", "ntfy"])   # macos alias, bogus dropped
+        self.assertEqual(s["levels"], [80, 95])               # out-of-range and junk dropped
+        self.assertEqual(cu._as_levels("inf,nan,-inf,70"), [70])  # non-finite dropped, no crash
+        self.assertEqual(s["buckets"], ["session"])
+        self.assertEqual(s["ntfy_topic"], "env")
+
+    def test_off_switches(self):
+        self.assertFalse(cu.notify_settings({"notify": {"enabled": False}}, {})["enabled"])
+        self.assertFalse(cu.notify_settings({}, {"CLAUDE_USAGE_NOTIFY": "off"})["enabled"])
+        # no valid channel at all → effectively off
+        self.assertFalse(cu.notify_settings({"notify": {"channels": ["nope"]}}, {})["enabled"])
+
+    def test_malformed_config_is_ignored(self):
+        with open(self.config_file, "w") as f:
+            f.write("{not json")
+        self.assertEqual(cu.load_config(), {})
+        self.assertEqual(cu.notify_settings({"notify": "junk"}, {})["levels"], [50, 80, 90])
+
+
+class TestNotifyMatching(NotifyFixture):
+    def test_wants_by_key_prefix_label_and_alias(self):
+        fable = self.bucket("weekly_scoped:fable", label="fable", title="Current week (Fable)")
+        self.assertTrue(cu.notify_wants(fable, ["weekly_scoped"]))
+        self.assertTrue(cu.notify_wants(fable, ["Fable"]))
+        self.assertTrue(cu.notify_wants(fable, ["weekly_scoped:fable"]))
+        self.assertFalse(cu.notify_wants(fable, ["session", "weekly_all"]))
+        self.assertTrue(cu.notify_wants(self.bucket("session"), ["five_hour"]))
+        self.assertTrue(cu.notify_wants(self.bucket("five_hour"), ["session"]))
+
+    def test_default_buckets_cover_all_three_modern_windows(self):
+        buckets = cu.normalize(MODERN_RESPONSE)
+        wanted = cu.NOTIFY_DEFAULT_BUCKETS
+        self.assertEqual([b["key"] for b in buckets if cu.notify_wants(b, wanted)],
+                         ["session", "weekly_all", "weekly_scoped:fable"])
+
+
+class TestDueNotifications(NotifyFixture):
+    SETTINGS = {"levels": [50, 80, 90], "buckets": ["session", "weekly_all", "weekly_scoped"]}
+
+    def fire(self, buckets, state):
+        """due_notifications + mark_sent, i.e. what maybe_notify does on success."""
+        due = cu.due_notifications(buckets, self.SETTINGS, state)
+        for b, _lvl, crossed in due:
+            cu.mark_sent(state, b, crossed)
+        return [lvl for _, lvl, _ in due]
+
+    def test_fires_highest_crossed_level_once(self):
+        reset = utc(hours=3)
+        state = {}
+        b = self.bucket(pct=95, resets=reset)
+        due = cu.due_notifications([b], self.SETTINGS, state)
+        self.assertEqual([(x["key"], lvl, crossed) for x, lvl, crossed in due],
+                         [("session", 90, [50, 80, 90])])
+        cu.mark_sent(state, b, [50, 80, 90])
+        self.assertEqual(state[cu.notify_state_key(b)], [50, 80, 90])  # lower levels marked too
+        self.assertEqual(cu.due_notifications([b], self.SETTINGS, state), [])
+
+    def test_unsent_level_is_offered_again(self):
+        # due_notifications never records by itself: a failed send must retry
+        b = self.bucket(pct=95, resets=utc(hours=3))
+        state = {}
+        cu.due_notifications([b], self.SETTINGS, state)
+        self.assertEqual([lvl for _, lvl, _ in cu.due_notifications([b], self.SETTINGS, state)],
+                         [90])
+
+    def test_climbs_through_levels(self):
+        reset = utc(hours=3)
+        state = {}
+        for pct, expect in ((10, []), (55, [50]), (60, []), (81, [80]), (99, [90])):
+            self.assertEqual(self.fire([self.bucket(pct=pct, resets=reset)], state), expect,
+                             "at %d%%" % pct)
+
+    def test_reset_rearms_and_prunes_old_state(self):
+        state = {}
+        old = self.bucket(pct=92, resets=utc(hours=1))
+        self.fire([old], state)
+        self.assertEqual(len(state), 1)
+        new = self.bucket(pct=91, resets=utc(hours=6))
+        self.assertEqual(self.fire([new], state), [90])
+        self.assertEqual(list(state), [cu.notify_state_key(new)])
+
+    def test_unwanted_bucket_is_ignored(self):
+        state = {}
+        apps = self.bucket("seven_day_oauth_apps", pct=99, label="apps", title="apps")
+        self.assertEqual(cu.due_notifications([apps], self.SETTINGS, state), [])
+        self.assertEqual(state, {})
+
+    def test_junk_state_does_not_crash(self):
+        state = {cu.notify_state_key(self.bucket()): ["x", None, 50]}
+        due = cu.due_notifications([self.bucket(pct=85)], self.SETTINGS, state)
+        self.assertEqual([lvl for _, lvl, _ in due], [80])
+
+
+class TestNotifyMessage(NotifyFixture):
+    def test_message_text(self):
+        now = datetime.now(timezone.utc)
+        b = self.bucket("weekly_scoped:fable", 92.4, "fable", "Current week (Fable)",
+                        now + timedelta(days=3, hours=1))
+        title, body = cu.notify_message(b, 90, now)
+        self.assertEqual(title, "Claude usage · 90% reached")
+        self.assertEqual(body, "Current week (Fable) is at 92% used · resets in 3d")
+
+    def test_message_without_reset(self):
+        _, body = cu.notify_message(self.bucket(pct=50), 50)
+        self.assertEqual(body, "Current session is at 50% used")
+
+
+class TestTerminalSequence(NotifyFixture):
+    def test_osc9_default(self):
+        seq = cu.terminal_notify_sequence("T", "B", env={})
+        self.assertEqual(seq, "\x1b]9;T: B\x07")
+
+    def test_kitty_uses_osc99(self):
+        seq = cu.terminal_notify_sequence("T", "B", env={"KITTY_WINDOW_ID": "1"})
+        self.assertTrue(seq.startswith("\x1b]99;"))
+        self.assertIn("p=title;T", seq)
+        self.assertIn("p=body;B", seq)
+
+    def test_tmux_passthrough_wrap(self):
+        seq = cu.terminal_notify_sequence("T", "B", env={"TMUX": "/tmp/x"})
+        self.assertTrue(seq.startswith("\x1bPtmux;\x1b\x1b]9;"))
+        self.assertTrue(seq.endswith("\x1b\\"))
+
+    def test_control_characters_are_stripped(self):
+        seq = cu.terminal_notify_sequence("T\x1b]0;evil\x07", "B\n", env={})
+        self.assertNotIn("\x1b]0;", seq)
+        self.assertEqual(seq.count("\x07"), 1)
+
+    def test_send_terminal_without_tty(self):
+        with mock.patch("builtins.open", side_effect=OSError(6, "Device not configured")):
+            self.assertFalse(cu.send_terminal("T", "B"))
+
+    def test_send_terminal_writes_to_dev_tty(self):
+        tty = io.StringIO()
+        tty.close = lambda: None
+        with mock.patch.dict(cu.os.environ, {}, clear=True), \
+             mock.patch("builtins.open", return_value=tty) as opener:
+            self.assertTrue(cu.send_terminal("T", "B"))
+        self.assertEqual(opener.call_args[0][0], "/dev/tty")
+        self.assertIn("\x1b]9;T: B\x07", tty.getvalue())
+
+
+class TestDesktopChannel(NotifyFixture):
+    def test_macos_osascript_escapes_quotes(self):
+        done = mock.Mock(returncode=0, stderr="")
+        with mock.patch.object(cu.sys, "platform", "darwin"), \
+             mock.patch.object(cu.subprocess, "run", return_value=done) as run:
+            self.assertTrue(cu.send_desktop('Ti"tle', 'Bo\\dy'))
+        cmd = run.call_args[0][0]
+        self.assertEqual(cmd[:2], ["osascript", "-e"])
+        self.assertEqual(cmd[2], 'display notification "Bo\\\\dy" with title "Ti\\"tle"')
+        self.assertEqual(run.call_args[1]["timeout"], 10)
+
+    def test_linux_notify_send(self):
+        done = mock.Mock(returncode=0, stderr="")
+        with mock.patch.object(cu.sys, "platform", "linux"), \
+             mock.patch.object(cu.subprocess, "run", return_value=done) as run:
+            self.assertTrue(cu.send_desktop("T", "B"))
+        self.assertEqual(run.call_args[0][0][0], "notify-send")
+
+    def test_failures_return_false(self):
+        with mock.patch.object(cu.subprocess, "run", side_effect=OSError("no osascript")):
+            self.assertFalse(cu.send_desktop("T", "B"))
+        with mock.patch.object(cu.subprocess, "run",
+                               return_value=mock.Mock(returncode=1, stderr="nope")):
+            self.assertFalse(cu.send_desktop("T", "B"))
+
+
+class TestNtfyChannel(NotifyFixture):
+    def _resp(self, status=200):
+        resp = mock.MagicMock()
+        resp.status = status
+        resp.__enter__.return_value = resp
+        return resp
+
+    def test_posts_json_to_server_root(self):
+        with mock.patch.object(cu.urllib.request, "urlopen", return_value=self._resp()) as up:
+            self.assertTrue(cu.send_ntfy("T ✳", "B", "my-topic", "https://ntfy.example/", 90))
+        req = up.call_args[0][0]
+        self.assertEqual(req.full_url, "https://ntfy.example/")
+        self.assertEqual(req.get_method(), "POST")
+        payload = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(payload["topic"], "my-topic")
+        self.assertEqual(payload["title"], "T ✳")
+        self.assertEqual(payload["message"], "B")
+        self.assertEqual(payload["priority"], 4)
+        self.assertEqual(up.call_args[1]["timeout"], 5)
+
+    def test_lower_levels_use_default_priority(self):
+        with mock.patch.object(cu.urllib.request, "urlopen", return_value=self._resp()) as up:
+            cu.send_ntfy("T", "B", "t", level=50)
+        self.assertEqual(json.loads(up.call_args[0][0].data)["priority"], 3)
+
+    def test_no_topic_sends_nothing(self):
+        with mock.patch.object(cu.urllib.request, "urlopen") as up:
+            self.assertFalse(cu.send_ntfy("T", "B", ""))
+        up.assert_not_called()
+
+    def test_network_error_returns_false(self):
+        with mock.patch.object(cu.urllib.request, "urlopen",
+                               side_effect=urllib.error.URLError("down")):
+            self.assertFalse(cu.send_ntfy("T", "B", "t"))
+
+
+class TestMaybeNotify(NotifyFixture):
+    def test_fires_and_records_state_in_cache(self):
+        settings = cu.notify_settings({"notify": {"preset": "standard", "channels": ["desktop"]}}, {})
+        cache = {}
+        data = {"limits": [
+            {"kind": "session", "percent": 85, "resets_at": iso(utc(hours=2))},
+            {"kind": "weekly_all", "percent": 12, "resets_at": iso(utc(days=3))},
+            {"kind": "weekly_scoped", "percent": 91, "resets_at": iso(utc(days=3)),
+             "scope": {"model": {"display_name": "Fable"}}},
+        ]}
+        with mock.patch.object(cu, "send_notification", return_value={"desktop": True}) as send:
+            fired = cu.maybe_notify(cache, data, settings)
+        self.assertEqual([(b["key"], lvl) for b, lvl, _ in fired],
+                         [("session", 80), ("weekly_scoped:fable", 90)])
+        self.assertEqual(send.call_count, 2)
+        title, body = send.call_args_list[1][0][1:3]
+        self.assertEqual(title, "Claude usage · 90% reached")
+        self.assertTrue(body.startswith("Current week (Fable) is at 91% used"))
+        self.assertEqual(len(cache["notified"]), 3)
+        self.assertEqual(cu.load_cache()["notified"], cache["notified"])   # persisted itself
+        # same response again → nothing new
+        with mock.patch.object(cu, "send_notification") as send:
+            self.assertEqual(cu.maybe_notify(cache, data, settings), [])
+        send.assert_not_called()
+
+    def test_failed_delivery_is_retried_next_time(self):
+        settings = cu.notify_settings({"notify": {"channels": ["ntfy"], "ntfy_topic": "t"}}, {})
+        data = {"limits": [{"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}
+        with mock.patch.object(cu, "send_notification", return_value={"ntfy": False}) as send:
+            cu.maybe_notify({}, data, settings)
+            cu.maybe_notify({}, data, settings)
+        self.assertEqual(send.call_count, 2)                    # not recorded → retried
+        with mock.patch.object(cu, "send_notification", return_value={"ntfy": True}) as send:
+            cu.maybe_notify({}, data, settings)
+            cu.maybe_notify({}, data, settings)
+        self.assertEqual(send.call_count, 1)                    # delivered → recorded
+
+    def test_reads_state_from_disk_not_stale_cache(self):
+        # another process alerted after this one loaded its cache copy
+        settings = cu.notify_settings({"notify": {"channels": ["desktop"]}}, {})
+        data = {"limits": [{"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}
+        stale_copy = {}
+        with mock.patch.object(cu, "send_notification", return_value={"desktop": True}) as send:
+            cu.maybe_notify({}, data, settings)                 # "other" process, persists
+            cu.maybe_notify(stale_copy, data, settings)         # this one: sees disk state
+        self.assertEqual(send.call_count, 1)
+
+    def test_lock_is_taken_around_the_check(self):
+        settings = cu.notify_settings({"notify": {"channels": ["desktop"]}}, {})
+        with mock.patch.object(cu, "notify_lock") as lock, \
+             mock.patch.object(cu, "send_notification", return_value={"desktop": True}):
+            cu.maybe_notify({}, MODERN_RESPONSE, settings)
+        lock.assert_called_once()
+
+    def test_lock_file_lives_in_cache_dir(self):
+        with cu.notify_lock():
+            pass
+        self.assertTrue(os.path.exists(os.path.join(cu.CACHE_DIR, "notify.lock")))
+
+    def test_disabled_sends_nothing(self):
+        settings = cu.notify_settings({"notify": {"enabled": False}}, {})
+        with mock.patch.object(cu, "send_notification") as send:
+            self.assertEqual(cu.maybe_notify({}, MODERN_RESPONSE, settings), [])
+        send.assert_not_called()
+
+    def test_send_notification_fans_out(self):
+        settings = cu.notify_settings(
+            {"notify": {"channels": ["terminal", "desktop", "ntfy"], "ntfy_topic": "t"}}, {})
+        with mock.patch.object(cu, "send_terminal", return_value=False), \
+             mock.patch.object(cu, "send_desktop", return_value=True), \
+             mock.patch.object(cu, "send_ntfy", return_value=True) as ntfy:
+            out = cu.send_notification(settings, "T", "B", 90)
+        self.assertEqual(out, {"terminal": False, "desktop": True, "ntfy": True})
+        self.assertEqual(ntfy.call_args[0], ("T", "B", "t", "https://ntfy.sh", 90))
+
+    def test_get_usage_notifies_only_on_fresh_fetch(self):
+        with mock.patch.object(cu, "load_credentials", return_value=("tok", {}, "env")), \
+             mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
+             mock.patch.object(cu, "fetch_usage", return_value=MODERN_RESPONSE), \
+             mock.patch.object(cu, "maybe_notify") as notify:
+            cu.get_usage(ttl=60, force=True)
+            notify.assert_called_once()
+            self.assertEqual(notify.call_args[0][1], MODERN_RESPONSE)
+            cu.get_usage(ttl=60)                      # cache hit
+            cu.get_usage(ttl=60, force=True, notify=False)
+            self.assertEqual(notify.call_count, 1)
+
+    def test_state_persists_across_cli_runs(self):
+        self.write_config({"channels": ["desktop"]})
+        with mock.patch.object(cu, "load_credentials", return_value=("tok", {}, "env")), \
+             mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
+             mock.patch.object(cu, "fetch_usage", return_value={"limits": [
+                 {"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}), \
+             mock.patch.object(cu, "send_desktop", return_value=True) as desktop:
+            cu.get_usage(ttl=60, force=True)
+            cu.get_usage(ttl=60, force=True)
+        self.assertEqual(desktop.call_count, 1)
+        self.assertEqual(list(cu.load_cache()["notified"].values()), [[50, 80, 90]])
+
+
+class TestNotifyTest(NotifyFixture):
+    def test_reports_each_channel(self):
+        self.write_config({"channels": ["terminal", "desktop", "ntfy"], "ntfy_topic": "t"})
+        with mock.patch.object(cu, "send_terminal", return_value=False), \
+             mock.patch.object(cu, "send_desktop", return_value=True), \
+             mock.patch.object(cu, "send_ntfy", return_value=True), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            code = cu.run_notify_test("all")
+        text = out.getvalue()
+        self.assertEqual(code, 1)
+        self.assertIn("✗ terminal", text)
+        self.assertIn("✓ desktop", text)
+        self.assertIn("✓ ntfy", text)
+        self.assertIn("levels: 50%, 80%, 90%", text)
+
+    def test_single_channel_and_pass(self):
+        with mock.patch.object(cu, "send_ntfy", return_value=True) as ntfy, \
+             mock.patch.object(cu, "send_terminal") as term, \
+             mock.patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(cu.run_notify_test("ntfy"), 0)
+        ntfy.assert_called_once()
+        term.assert_not_called()
+
+    def test_cli_flag_routes_to_test(self):
+        with mock.patch.object(cu, "run_notify_test", return_value=0) as fn, \
+             mock.patch.object(sys, "argv", ["claude-usage", "--notify-test", "desktop"]), \
+             self.assertRaises(SystemExit) as ctx:
+            cu.main()
+        fn.assert_called_once_with("desktop")
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_no_notify_flag(self):
+        with mock.patch.object(cu, "get_usage", return_value=(None, None, False, None)) as gu, \
+             mock.patch.object(sys, "argv", ["claude-usage", "--no-notify"]), \
+             mock.patch("sys.stdout", new_callable=io.StringIO):
+            cu.main()
+        self.assertFalse(gu.call_args[1]["notify"])
 
 
 if __name__ == "__main__":

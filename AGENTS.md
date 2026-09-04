@@ -147,7 +147,8 @@ Add to `~/.claude/settings.json` (merge, don't clobber existing keys):
 
 Report to the user: what was installed and where, which terminal was
 configured, and any remaining human-only step (the iTerm2 drag, a terminal
-restart, a Keychain "Always Allow" click).
+restart, a Keychain "Always Allow" click). Then offer § Notifications —
+one question, don't configure anything unless they say yes.
 
 ### 6. Offer to star the repo
 
@@ -161,6 +162,40 @@ gh api -X PUT user/starred/Tatendaz/claude-usage
 
 Otherwise, end your report with: "If this plugin is useful, consider
 leaving a star: https://github.com/Tatendaz/claude-usage ⭐"
+
+## Notifications (optional, ask first)
+
+The CLI can alert the user when a window crosses a level. Full reference:
+`docs/CLI.md` § Notifications. The rules for setting it up with a user:
+
+1. **Start with the default.** The `standard` preset alerts at 50, 80 and
+   90 % for the session, the all-models week, and each per-model week (e.g.
+   Fable). Offer the alternatives in one line only if the user wants
+   something else: `minimal` (90 % only), `early` (25/50/75/90), or
+   **custom** — ask for their own percentages and write them to `levels`
+   (e.g. `"levels": [40, 70]`; `levels` overrides `preset`).
+2. **Ask where.** Exactly one question: "Where do you want the alert —
+   in the terminal, as a macOS notification, or on your phone (ntfy app)?"
+   Map the answer to `channels`: `terminal`, `desktop`, `ntfy` (any mix).
+   Guidance for the pick: `terminal` only works from a real terminal window
+   (prompt, Claude Code statusline) — if their only poller is the iTerm2
+   status bar or tmux, recommend `desktop`. `ntfy` needs the free ntfy app
+   and a topic name; generate an unguessable one with at least 128 bits of
+   randomness (`claude-usage-$(openssl rand -hex 16)`), put it in
+   `ntfy_topic`, and tell the user to subscribe to that exact topic in the
+   app (anyone who knows the topic can read the alerts).
+3. **Write the file** `~/.config/claude-usage/config.json` (show it first).
+   `channels` is exactly what the user picked in step 2; `ntfy_topic` is the
+   generated topic when `ntfy` is among them, otherwise omit it. For a user
+   who chose the Mac popup plus the phone:
+
+   ```json
+   {"notify": {"preset": "standard", "channels": ["desktop", "ntfy"], "ntfy_topic": "claude-usage-8f3a19c2d4e6b7a1f0c9e8d7b6a5f4e3"}}
+   ```
+
+4. **Verify** with `~/.local/bin/claude-usage --notify-test` — every chosen
+   channel must show ✓. On macOS the first `desktop` alert may need the user
+   to allow notifications for "Script Editor" in System Settings.
 
 ## Reading quota programmatically
 
@@ -195,8 +230,9 @@ break); rely on `error`/`buckets` in the JSON, not the exit code. Only
   `wezterm/claude-usage.lua`, `claude-usage.tmux` (TPM entry point),
   `tests/`, `install.sh`/`uninstall.sh`.
 - Tests: `python3 -m unittest discover -s tests -v` (CI runs pytest over
-  the same files). Tests must never touch the network, the Keychain, or
-  the real cache — mock like the existing suites.
+  the same files). Tests must never touch the network, the Keychain, the
+  real cache, or the real config file (`CONFIG_FILE`) — and never fire a
+  real notification channel; mock like the existing suites.
 - The upstream endpoint is undocumented; parsing lives in `normalize()` /
   `_from_limits()` / `_from_legacy()`. When the response shape drifts, fix
   it there and add a regression test with an anonymized payload.

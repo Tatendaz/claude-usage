@@ -4,6 +4,7 @@
 claude-usage [--format text|iterm|tmux|long|json] [--remaining]
              [--resets countdown|inline|tail|off] [--width wide|medium|compact|mini]
              [--buckets LIST] [--all] [--ttl N] [--force] [--check] [--demo]
+             [--notify-test [CHANNEL]] [--no-notify]
 ```
 
 `install.sh` puts the CLI at `~/.local/bin/claude-usage` — not on macOS's
@@ -24,6 +25,8 @@ default `PATH`, so the examples below use the full path.
 | `--ttl 60` / `--force` | cache lifetime / bypass the cache |
 | `--check` | verbose self-check (credentials, token, endpoint, windows) |
 | `--demo` | render sample data — no credentials or network needed |
+| `--notify-test` | send one test alert on every configured channel and report per channel; `--notify-test ntfy` tests just one (`terminal`, `desktop`, `ntfy`) |
+| `--no-notify` | skip the threshold alerts for this one call |
 
 ## Environment
 
@@ -36,6 +39,82 @@ default `PATH`, so the examples below use the full path.
 | `CLAUDE_USAGE_RESET_LABEL` | word after the ⟲ icon; default "reset in" for countdowns, "resets" otherwise, `""` for the bare icon |
 | `CLAUDE_USAGE_BIN` | path override for terminal components |
 | `CLAUDE_USAGE_DEBUG=1` | verbose diagnostics on stderr |
+| `CLAUDE_USAGE_NOTIFY` | alert channels, comma-separated (`terminal`, `desktop`, `ntfy`), or `off` |
+| `CLAUDE_USAGE_NOTIFY_PRESET` | `standard` (default), `minimal`, or `early` — see [Notifications](#notifications) |
+| `CLAUDE_USAGE_NOTIFY_LEVELS` | explicit alert percentages, e.g. `50,80,90` (overrides the preset) |
+| `CLAUDE_USAGE_NOTIFY_BUCKETS` | which windows alert; default `session,weekly_all,weekly_scoped` |
+| `CLAUDE_USAGE_NTFY_TOPIC` / `CLAUDE_USAGE_NTFY_SERVER` | ntfy topic (required for the `ntfy` channel) and server (default `https://ntfy.sh`) |
+
+Every `CLAUDE_USAGE_NOTIFY*` variable overrides the matching key in the config file.
+
+## Notifications
+
+The CLI can alert you when a window crosses a percentage. The check rides on
+the polling your status bar already does: each fresh fetch compares every
+window against the levels, fires **one** alert per window per crossing, and
+remembers what it sent in the cache until that window resets. A level counts
+as sent only once at least one channel delivered it, so a failed send is
+retried on the next fresh fetch; a lock file keeps two status bars refreshing
+at the same moment from both alerting. No daemon, no extra process — but
+nothing polls when no status bar (or prompt) is running.
+
+Settings live in `~/.config/claude-usage/config.json` (`$XDG_CONFIG_HOME`
+honored). The defaults, spelled out:
+
+```json
+{
+  "notify": {
+    "preset": "standard",
+    "channels": ["terminal"],
+    "buckets": ["session", "weekly_all", "weekly_scoped"],
+    "ntfy_topic": ""
+  }
+}
+```
+
+**Presets** (or set `levels` yourself, e.g. `"levels": [40, 70]`):
+
+| Preset | Alerts at | For |
+|---|---|---|
+| `standard` (default) | 50, 80, 90 % | pacing a week: a heads-up, then two reminders |
+| `minimal` | 90 % | one alert per window, right before it runs out |
+| `early` | 25, 50, 75, 90 % | heavy users who plan the whole week |
+| custom | whatever you put in `levels` | e.g. `"levels": [40, 70]` — `levels` wins over `preset` |
+
+**Windows**: the session, the all-models week, and every per-model week
+(a Fable or Opus week matches `weekly_scoped`; `fable` or
+`weekly_scoped:fable` picks one). Legacy names (`five_hour`, `seven_day`)
+work too.
+
+**Channels** — pick any mix:
+
+| Channel | What happens | Needs |
+|---|---|---|
+| `terminal` | the terminal shows its own system notification (OSC 9; OSC 99 on kitty) | a real terminal window: prompts (zsh, starship) and the Claude Code statusline have one, iTerm2's status bar component and tmux's `#()` do not. Inside tmux: `set -g allow-passthrough on` |
+| `desktop` (alias `macos`) | macOS notification via `osascript`; `notify-send` on Linux | macOS: allow notifications for **Script Editor** the first time |
+| `ntfy` | push to your phone through [ntfy](https://ntfy.sh) (free app, iOS + Android) | `ntfy_topic` set to a topic name you subscribe to in the app. Each push sends the topic name, the window name, the percentage, and the time to reset to `ntfy_server` (nothing else); anyone who knows the topic can read the alerts, so use a long random one (`claude-usage-$(openssl rand -hex 16)`) or run your own server |
+
+Test the setup any time:
+
+```console
+$ ~/.local/bin/claude-usage --notify-test
+claude-usage notification test
+  · config: /Users/you/.config/claude-usage/config.json
+  · preset: standard  levels: 50%, 80%, 90%
+  · windows: session, weekly_all, weekly_scoped
+  · channels: desktop, ntfy
+  ✓ desktop
+  ✓ ntfy
+notification test passed (CLAUDE_USAGE_DEBUG=1 for details)
+```
+
+**iPhone pushes stop arriving?** That is a [known ntfy app bug](https://docs.ntfy.sh/known-issues/):
+messages show up only when you open the app. Delete and reinstall the ntfy
+app, subscribe to the topic again, then run `--notify-test ntfy`. Messages
+sent before you subscribed never push; they only appear in the app's list.
+
+Turn everything off with `"enabled": false` in the file or
+`CLAUDE_USAGE_NOTIFY=off`. `--check` prints the effective notify settings.
 
 ## Sample output
 

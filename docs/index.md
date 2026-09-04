@@ -86,7 +86,23 @@ One on-disk cache feeds every terminal at once — 60 seconds by default, tunabl
 
 ### One readable file
 
-The core is ~830 lines of stdlib-only Python with zero dependencies and 128 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.
+The core is ~1,209 lines of stdlib-only Python with zero dependencies and 177 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.
+
+## Get an alert before it runs out
+
+Optional. The bar already polls, so the alerts ride on that: one notification per window each time it crosses 50, 80, or 90 percent, then silence until the window resets.
+
+### Three channels, any mix
+
+Your terminal's own notification (iTerm2, WezTerm, kitty, ghostty), a macOS notification, or a push to your phone through the free ntfy app on iOS and Android. Pick one or all three.
+
+### Your levels
+
+The default is 50, 80, and 90 percent. `minimal` is 90 only, `early` adds 25 and 75, or list your own percentages. It watches the session, the week, and every per-model week such as Fable.
+
+### One file, one test
+
+Settings live in `~/.config/claude-usage/config.json`. Run `claude-usage --notify-test` to fire a test on every channel and see which ones arrived. A notification carries only the window name, the percentage, and the time to reset.
 
 ## Install by hand
 
