@@ -28,6 +28,9 @@
    at 90% on all three avenues, so on my phone, terminal, and desktop
    notification." then "Actually, the 50%, 80%, and 90% make that standard."
 
+6. "switch to desktop oh and does herdr support notifications if yes add
+   support for it becuase I use claude in herdr"
+
 ## Steps taken
 - Read `AGENTS.md`, `bin/claude-usage` (cache, `get_usage`, `normalize`,
   `main`), the test fixtures and the docs gate. Proposed piggybacking on the
@@ -60,6 +63,20 @@
 - Docs: `docs/CLI.md` (incl. the reinstall tip), `README.md` (new
   Notifications section), `docs/index.html` + `docs/index.md` (new section,
   counts refreshed), `AGENTS.md`, this pair of entries.
+- PR #18 review (server-side CodeRabbit, 3 threads): XDG path wording; catch
+  exceptions from the notifier so the status line always prints (plus
+  tolerate junk state values); release the lock during delivery — replaced
+  the single locked section with the two-phase reservation
+  (`notify_pending`, 60 s expiry for abandoned reservations). Tests for each.
+- Default channel flipped to `desktop` on the user's word.
+- herdr: found `herdr notification show <title> --body --sound` (CLI over the
+  herdr socket) and the `[ui] tab_bar_right` `command` slot in herdr's docs.
+  Added the `herdr` channel (`HERDR_BIN_PATH` or `herdr` on PATH), a herdr
+  section in TERMINALS.md and AGENTS.md, and put both into the user's own
+  config (claude-usage channels + herdr tab bar). The live toast test hit
+  `protocol_mismatch` (herdr 0.8.2 CLI vs an older running server); a herdr
+  restart is the fix, left to the user because it closes every pane
+  including this session.
 
 ## Decisions
 - No daemon: the check runs on every fresh fetch inside `get_usage()`. Costs
@@ -69,9 +86,10 @@
 - Presets over a free-form UI: `standard` (default, 50/80/90) / `minimal` /
   `early`, with `levels` for anyone who wants their own (the "custom" choice
   in the setup flow).
-- Default channel `terminal`, as asked. Its `/dev/tty` requirement is written
-  down in CLI.md, AGENTS.md and the feature entry with `desktop` as the
-  recommendation for status-bar-only setups.
+- Default channel: `terminal` at first, as asked; after seeing that it cannot
+  fire from the iTerm2 status bar the user said "switch to desktop", so the
+  default is `desktop`. The `/dev/tty` requirement of `terminal` stays
+  documented in CLI.md and AGENTS.md.
 - `desktop` also accepts `macos` as an alias.
 - ntfy via JSON publish (unicode titles), random topic generated for the user,
   privacy note in the docs (a push carries the topic name, window name,

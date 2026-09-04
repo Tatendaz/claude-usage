@@ -86,15 +86,15 @@ One on-disk cache feeds every terminal at once — 60 seconds by default, tunabl
 
 ### One readable file
 
-The core is ~1,209 lines of stdlib-only Python with zero dependencies and 177 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.
+The core is ~1,289 lines of stdlib-only Python with zero dependencies and 183 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.
 
 ## Get an alert before it runs out
 
 Optional. The bar already polls, so the alerts ride on that: one notification per window each time it crosses 50, 80, or 90 percent, then silence until the window resets.
 
-### Three channels, any mix
+### Four channels, any mix
 
-Your terminal's own notification (iTerm2, WezTerm, kitty, ghostty), a macOS notification, or a push to your phone through the free ntfy app on iOS and Android. Pick one or all three.
+Your terminal's own notification (iTerm2, WezTerm, kitty, ghostty), a macOS notification, a toast inside herdr, or a push to your phone through the free ntfy app on iOS and Android. Pick any mix.
 
 ### Your levels
 
@@ -122,6 +122,7 @@ cd ~/.claude-usage && ./install.sh
 | tmux | TPM plugin: `set -g @plugin 'Tatendaz/claude-usage'`, then a `#{claude_usage}` placeholder. |
 | WezTerm | One `require` in wezterm.lua renders it in the right status area. |
 | kitty | Tab bar integration (experimental). |
+| herdr | Tab bar command slot, plus an in-app toast channel for the alerts. |
 | starship, zsh | Prompt segment, or Claude Code's own statusline. Any bar that can run a command works. |
 
 ## FAQ

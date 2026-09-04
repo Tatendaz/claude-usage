@@ -139,12 +139,13 @@ Three channels, any mix:
 | Channel | What you get |
 |---|---|
 | `terminal` | the terminal's own notification (iTerm2, WezTerm, kitty, ghostty). Needs a real terminal window: prompts and the Claude Code statusline have one, the iTerm2 status bar component and tmux `#()` do not |
-| `desktop` | a macOS notification (Linux: `notify-send`) |
+| `desktop` | a macOS notification (Linux: `notify-send`). The default |
+| `herdr` | a toast inside [herdr](https://herdr.dev) if you run your agents there |
 | `ntfy` | a push to your phone through the free [ntfy](https://ntfy.sh) app, iOS and Android |
 
 Default levels are 50, 80, 90 % (`standard`). `minimal` is 90 % only,
 `early` adds 25 and 75, or set your own `levels`. Configure it in
-`~/.config/claude-usage/config.json`:
+`~/.config/claude-usage/config.json` (or under `$XDG_CONFIG_HOME` if you set it):
 
 ```json
 {

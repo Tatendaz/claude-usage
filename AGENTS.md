@@ -50,12 +50,14 @@ AutoLaunch folder. It never edits shell rc files or terminal configs.
 ### 3. Detect the user's terminal
 
 ```bash
-echo "TERM_PROGRAM=$TERM_PROGRAM TMUX=${TMUX:+yes} KITTY=${KITTY_WINDOW_ID:+yes}"
+echo "TERM_PROGRAM=$TERM_PROGRAM TMUX=${TMUX:+yes} KITTY=${KITTY_WINDOW_ID:+yes} HERDR=${HERDR_ENV:+yes}"
 ```
 
 - `iTerm.app` → § iTerm2. `WezTerm` → § WezTerm. `KITTY=yes` → § kitty.
 - `TMUX=yes` → § tmux (applies inside any terminal, can combine with the
   host terminal's own integration).
+- `HERDR=yes` → § herdr (the agent multiplexer; combine with the host
+  terminal's own integration if it has one).
 - `Apple_Terminal`, `vscode`, or anything else without a status bar → offer
   § tmux, § zsh prompt, or § Claude Code statusline instead.
 
@@ -112,6 +114,23 @@ cp ~/.claude-usage/kitty/tab_bar.py ~/.config/kitty/tab_bar.py   # don't overwri
 In `kitty.conf`: `tab_bar_style custom` and `tab_bar_min_tabs 1`. If the
 user already has a custom `tab_bar.py`, merge `status_text`, `find_core`,
 and `_draw_right_status` into it rather than replacing the file.
+
+#### herdr
+
+Add to `~/.config/herdr/config.toml` (show the diff first; if a
+`tab_bar_right` already exists, add the command entry to it):
+
+```toml
+[ui]
+tab_bar_right = [
+  { type = "command", command = "~/.local/bin/claude-usage", interval_seconds = 30, timeout_seconds = 15 },
+]
+```
+
+Then `herdr server reload-config`. If that reports a protocol mismatch, the
+running herdr server predates the CLI: the user must restart herdr
+themselves (it closes every pane, so never do it for them). In
+§ Notifications, offer the `herdr` channel to this user.
 
 #### starship
 
@@ -176,7 +195,8 @@ The CLI can alert the user when a window crosses a level. Full reference:
    (e.g. `"levels": [40, 70]`; `levels` overrides `preset`).
 2. **Ask where.** Exactly one question: "Where do you want the alert —
    in the terminal, as a macOS notification, or on your phone (ntfy app)?"
-   Map the answer to `channels`: `terminal`, `desktop`, `ntfy` (any mix).
+   Map the answer to `channels`: `terminal`, `desktop`, `ntfy`, `herdr`
+   (any mix; offer `herdr` only when `HERDR_ENV` is set).
    Guidance for the pick: `terminal` only works from a real terminal window
    (prompt, Claude Code statusline) — if their only poller is the iTerm2
    status bar or tmux, recommend `desktop`. `ntfy` needs the free ntfy app
@@ -184,7 +204,8 @@ The CLI can alert the user when a window crosses a level. Full reference:
    randomness (`claude-usage-$(openssl rand -hex 16)`), put it in
    `ntfy_topic`, and tell the user to subscribe to that exact topic in the
    app (anyone who knows the topic can read the alerts).
-3. **Write the file** `~/.config/claude-usage/config.json` (show it first).
+3. **Write the file** `${XDG_CONFIG_HOME:-$HOME/.config}/claude-usage/config.json`
+   (show it first).
    `channels` is exactly what the user picked in step 2; `ntfy_topic` is the
    generated topic when `ntfy` is among them, otherwise omit it. For a user
    who chose the Mac popup plus the phone:

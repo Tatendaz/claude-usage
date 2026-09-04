@@ -25,7 +25,7 @@ default `PATH`, so the examples below use the full path.
 | `--ttl 60` / `--force` | cache lifetime / bypass the cache |
 | `--check` | verbose self-check (credentials, token, endpoint, windows) |
 | `--demo` | render sample data — no credentials or network needed |
-| `--notify-test` | send one test alert on every configured channel and report per channel; `--notify-test ntfy` tests just one (`terminal`, `desktop`, `ntfy`) |
+| `--notify-test` | send one test alert on every configured channel and report per channel; `--notify-test ntfy` tests just one (`terminal`, `desktop`, `ntfy`, `herdr`) |
 | `--no-notify` | skip the threshold alerts for this one call |
 
 ## Environment
@@ -39,7 +39,7 @@ default `PATH`, so the examples below use the full path.
 | `CLAUDE_USAGE_RESET_LABEL` | word after the ⟲ icon; default "reset in" for countdowns, "resets" otherwise, `""` for the bare icon |
 | `CLAUDE_USAGE_BIN` | path override for terminal components |
 | `CLAUDE_USAGE_DEBUG=1` | verbose diagnostics on stderr |
-| `CLAUDE_USAGE_NOTIFY` | alert channels, comma-separated (`terminal`, `desktop`, `ntfy`), or `off` |
+| `CLAUDE_USAGE_NOTIFY` | alert channels, comma-separated (`terminal`, `desktop`, `ntfy`, `herdr`), or `off` |
 | `CLAUDE_USAGE_NOTIFY_PRESET` | `standard` (default), `minimal`, or `early` — see [Notifications](#notifications) |
 | `CLAUDE_USAGE_NOTIFY_LEVELS` | explicit alert percentages, e.g. `50,80,90` (overrides the preset) |
 | `CLAUDE_USAGE_NOTIFY_BUCKETS` | which windows alert; default `session,weekly_all,weekly_scoped` |
@@ -65,7 +65,7 @@ honored). The defaults, spelled out:
 {
   "notify": {
     "preset": "standard",
-    "channels": ["terminal"],
+    "channels": ["desktop"],
     "buckets": ["session", "weekly_all", "weekly_scoped"],
     "ntfy_topic": ""
   }
@@ -92,6 +92,7 @@ work too.
 |---|---|---|
 | `terminal` | the terminal shows its own system notification (OSC 9; OSC 99 on kitty) | a real terminal window: prompts (zsh, starship) and the Claude Code statusline have one, iTerm2's status bar component and tmux's `#()` do not. Inside tmux: `set -g allow-passthrough on` |
 | `desktop` (alias `macos`) | macOS notification via `osascript`; `notify-send` on Linux | macOS: allow notifications for **Script Editor** the first time |
+| `herdr` | a toast inside [herdr](https://herdr.dev), the agent multiplexer, via `herdr notification show`; herdr's own `[ui.toast] delivery` decides whether that is an in-app toast, an outer-terminal notification, or an OS one | herdr installed with its server running. Works from anywhere on the machine, status bars included |
 | `ntfy` | push to your phone through [ntfy](https://ntfy.sh) (free app, iOS + Android) | `ntfy_topic` set to a topic name you subscribe to in the app. Each push sends the topic name, the window name, the percentage, and the time to reset to `ntfy_server` (nothing else); anyone who knows the topic can read the alerts, so use a long random one (`claude-usage-$(openssl rand -hex 16)`) or run your own server |
 
 Test the setup any time:

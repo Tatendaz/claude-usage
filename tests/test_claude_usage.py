@@ -990,7 +990,7 @@ class TestNotifySettings(NotifyFixture):
     def test_defaults_without_config_or_env(self):
         s = cu.notify_settings(env={})
         self.assertTrue(s["enabled"])
-        self.assertEqual(s["channels"], ["terminal"])
+        self.assertEqual(s["channels"], ["desktop"])
         self.assertEqual(s["preset"], "standard")
         self.assertEqual(s["levels"], [50, 80, 90])
         self.assertEqual(s["buckets"], ["session", "weekly_all", "weekly_scoped"])
@@ -1193,6 +1193,44 @@ class TestDesktopChannel(NotifyFixture):
             self.assertFalse(cu.send_desktop("T", "B"))
 
 
+class TestHerdrChannel(NotifyFixture):
+    def test_runs_herdr_notification_show(self):
+        done = mock.Mock(returncode=0, stderr="")
+        with mock.patch.dict(cu.os.environ, {"HERDR_BIN_PATH": "/opt/herdr"}), \
+             mock.patch.object(cu.subprocess, "run", return_value=done) as run:
+            self.assertTrue(cu.send_herdr("T", "B", 92))
+        self.assertEqual(run.call_args[0][0],
+                         ["/opt/herdr", "notification", "show", "T", "--body", "B",
+                          "--sound", "request"])
+        with mock.patch.dict(cu.os.environ, {}, clear=True), \
+             mock.patch.object(cu.shutil, "which", return_value="/usr/local/bin/herdr"), \
+             mock.patch.object(cu.subprocess, "run", return_value=done) as run:
+            self.assertTrue(cu.send_herdr("T", "B", 50))
+        self.assertEqual(run.call_args[0][0][0], "/usr/local/bin/herdr")
+        self.assertEqual(run.call_args[0][0][-1], "none")
+
+    def test_missing_or_failing_herdr(self):
+        with mock.patch.dict(cu.os.environ, {}, clear=True), \
+             mock.patch.object(cu.shutil, "which", return_value=None), \
+             mock.patch.object(cu.subprocess, "run") as run:
+            self.assertFalse(cu.send_herdr("T", "B"))
+        run.assert_not_called()
+        with mock.patch.dict(cu.os.environ, {"HERDR_BIN_PATH": "/opt/herdr"}), \
+             mock.patch.object(cu.subprocess, "run",
+                               return_value=mock.Mock(returncode=1, stderr="no server")):
+            self.assertFalse(cu.send_herdr("T", "B"))
+        with mock.patch.dict(cu.os.environ, {"HERDR_BIN_PATH": "/opt/herdr"}), \
+             mock.patch.object(cu.subprocess, "run", side_effect=OSError("gone")):
+            self.assertFalse(cu.send_herdr("T", "B"))
+
+    def test_channel_is_accepted_and_fanned_out(self):
+        settings = cu.notify_settings({"notify": {"channels": ["herdr"]}}, {})
+        self.assertEqual(settings["channels"], ["herdr"])
+        with mock.patch.object(cu, "send_herdr", return_value=True) as herdr:
+            self.assertEqual(cu.send_notification(settings, "T", "B", 90), {"herdr": True})
+        herdr.assert_called_once_with("T", "B", 90)
+
+
 class TestNtfyChannel(NotifyFixture):
     def _resp(self, status=200):
         resp = mock.MagicMock()
@@ -1247,7 +1285,7 @@ class TestMaybeNotify(NotifyFixture):
         title, body = send.call_args_list[1][0][1:3]
         self.assertEqual(title, "Claude usage · 90% reached")
         self.assertTrue(body.startswith("Current week (Fable) is at 91% used"))
-        self.assertEqual(len(cache["notified"]), 3)
+        self.assertEqual(len(cache["notified"]), 2)          # only windows that alerted
         self.assertEqual(cu.load_cache()["notified"], cache["notified"])   # persisted itself
         # same response again → nothing new
         with mock.patch.object(cu, "send_notification") as send:
@@ -1276,12 +1314,80 @@ class TestMaybeNotify(NotifyFixture):
             cu.maybe_notify(stale_copy, data, settings)         # this one: sees disk state
         self.assertEqual(send.call_count, 1)
 
-    def test_lock_is_taken_around_the_check(self):
+    def test_lock_is_released_while_channels_deliver(self):
         settings = cu.notify_settings({"notify": {"channels": ["desktop"]}}, {})
-        with mock.patch.object(cu, "notify_lock") as lock, \
-             mock.patch.object(cu, "send_notification", return_value={"desktop": True}):
-            cu.maybe_notify({}, MODERN_RESPONSE, settings)
-        lock.assert_called_once()
+        data = {"limits": [{"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}
+        held = []
+
+        def send(*_a, **_k):
+            # while delivering, the reservation is on disk and the lock is free
+            held.append(cu.load_cache().get("notify_pending"))
+            with cu.notify_lock():
+                pass
+            return {"desktop": True}
+        with mock.patch.object(cu, "notify_lock", wraps=cu.notify_lock) as lock, \
+             mock.patch.object(cu, "send_notification", side_effect=send):
+            cu.maybe_notify({}, data, settings)
+        self.assertEqual(lock.call_count, 3)             # reserve, (send's own), record
+        self.assertEqual(list(held[0].values())[0]["levels"], [50, 80, 90])
+        self.assertEqual(cu.load_cache()["notify_pending"], {})   # cleared afterwards
+        # nothing due → one lock, no delivery
+        with mock.patch.object(cu, "notify_lock", wraps=cu.notify_lock) as lock, \
+             mock.patch.object(cu, "send_notification") as send_mock:
+            cu.maybe_notify({}, data, settings)
+        self.assertEqual(lock.call_count, 1)
+        send_mock.assert_not_called()
+
+    def test_reservation_by_another_process_is_respected(self):
+        settings = cu.notify_settings({"notify": {"channels": ["desktop"]}}, {})
+        data = {"limits": [{"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}
+        key = cu.notify_state_key(cu.normalize(data)[0])
+        cu.save_cache({"notify_pending": {key: {"levels": [50, 80, 90], "at": cu.time.time()}}})
+        with mock.patch.object(cu, "send_notification") as send:
+            self.assertEqual(cu.maybe_notify({}, data, settings), [])
+        send.assert_not_called()
+
+    def test_abandoned_reservation_expires(self):
+        settings = cu.notify_settings({"notify": {"channels": ["desktop"]}}, {})
+        data = {"limits": [{"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}
+        key = cu.notify_state_key(cu.normalize(data)[0])
+        old = cu.time.time() - cu.PENDING_TTL - 1
+        cu.save_cache({"notify_pending": {key: {"levels": [50, 80, 90], "at": old}}})
+        with mock.patch.object(cu, "send_notification", return_value={"desktop": True}) as send:
+            cu.maybe_notify({}, data, settings)
+        send.assert_called_once()
+
+    def test_junk_persisted_state_still_alerts(self):
+        settings = cu.notify_settings({"notify": {"channels": ["desktop"]}}, {})
+        data = {"limits": [{"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}
+        key = cu.notify_state_key(cu.normalize(data)[0])
+        cu.save_cache({"notified": {key: 5, "old|x": "junk"},
+                       "notify_pending": {key: {"levels": 7, "at": cu.time.time()}, "y": 1}})
+        with mock.patch.object(cu, "send_notification", return_value={"desktop": True}) as send:
+            fired = cu.maybe_notify({}, data, settings)
+        send.assert_called_once()
+        self.assertEqual([lvl for _, lvl, _ in fired], [90])
+        self.assertEqual(cu.load_cache()["notified"], {key: [50, 80, 90]})
+        self.assertEqual(cu.load_cache()["notify_pending"], {})
+        self.assertEqual(cu._levels(["3", 4.0, None, 5]), {4, 5})
+        self.assertEqual(cu._levels("junk"), set())
+
+    def test_junk_cache_never_breaks_the_status_line(self):
+        cu.save_cache({"notified": {"session|x": 5}, "notify_pending": "junk"})
+        self.write_config({"channels": ["desktop"]})
+        with mock.patch.object(cu, "load_credentials", return_value=("tok", {}, "env")), \
+             mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
+             mock.patch.object(cu, "fetch_usage", return_value=MODERN_RESPONSE), \
+             mock.patch.object(cu, "send_desktop", return_value=True), \
+             mock.patch.object(cu, "maybe_notify", side_effect=RuntimeError("boom")):
+            data, _, _, err = cu.get_usage(ttl=60, force=True)
+        self.assertEqual(data, MODERN_RESPONSE)
+        self.assertIsNone(err)
+        # and a non-list state value is ignored rather than raised on
+        state = {cu.notify_state_key(self.bucket()): 5}
+        due = cu.due_notifications([self.bucket(pct=85)], {"levels": [80],
+                                                          "buckets": ["session"]}, state)
+        self.assertEqual([lvl for _, lvl, _ in due], [80])
 
     def test_lock_file_lives_in_cache_dir(self):
         with cu.notify_lock():
