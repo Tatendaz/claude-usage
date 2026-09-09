@@ -281,15 +281,20 @@ break); rely on `error`/`buckets` in the JSON, not the exit code. Only
 - The upstream endpoint is undocumented; parsing lives in `normalize()` /
   `_from_limits()` / `_from_legacy()`. When the response shape drifts, fix
   it there and add a regression test with an anonymized payload.
-- Never print, log, or write the OAuth token anywhere. Percentages are the
-  only data that leaves the CLI.
+- Never print, log, persist, or include the OAuth token in quota output or
+  notifications. Send it only as authentication to the fixed Anthropic usage
+  endpoint. JSON output includes labels, titles, reset fields, severity,
+  activity, and allowlisted raw quota data. Eligible ntfy notifications send
+  the configured topic and quota alert text (window name, percentage, reset
+  time), plus notification priority/tags; they never contain the OAuth token.
 - PRs need a `docs/features/` entry and a `docs/summaries/` entry (CI
   enforces this; see CONTRIBUTING.md).
 
 ## PR review completion
 
 After opening or updating a PR, expect CodeRabbit feedback. Check the review
-threads, address validated findings, and obtain a verdict covering the current
+threads and full review bodies, including outside-diff comments. Address
+validated findings and obtain a verdict covering the current
 HEAD before reporting the PR as clean. Passing CI alone is not a review verdict.
 If review has not finished, report it explicitly and continue the review follow-up.
 Gate every review trigger through the shared CodeRabbit budget above; never

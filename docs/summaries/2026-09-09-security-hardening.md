@@ -38,3 +38,9 @@ The redirect test now asserts that the production guard runs and compares it
 against a permissive control with mocked HTTP and HTTPS transports. Disabling
 the guard demonstrably follows the redirect and forwards the synthetic header.
 PR review remains part of the completion checks after pushes.
+
+The follow-up review also found an outside-diff sentence claiming only
+percentages leave the CLI. Replaced it with a token-focused rule and explicit
+JSON/ntfy data descriptions. Completion guidance now requires reading full
+review bodies as well as inline threads, since the watcher did not surface this
+outside-diff comment.
