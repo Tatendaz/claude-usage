@@ -16,7 +16,7 @@ default `PATH`, so the examples below use the full path.
 | Flag | What it does |
 |---|---|
 | `--format long` | `/usage`-style panel with bars and reset times |
-| `--format json` | machine-readable buckets + raw API response |
+| `--format json` | machine-readable buckets + allowlisted quota response (`raw`) |
 | `--remaining` | show quota **left** instead of used |
 | `--resets countdown` | reset style: `countdown` (`⟲ reset in 3h`), `inline` (`⟲ resets 11pm`), `tail` (grouped at the end), `off`. Default: countdown in `iterm`, off elsewhere |
 | `--width wide` | print one fixed iTerm2 size instead of the full width ladder: `wide`, `medium`, `compact`, `mini` (`--format iterm` only). `wide`/`compact` honor `--resets`; `medium`/`mini` never show resets. This is what the six iTerm2 picker entries use internally |
@@ -48,6 +48,17 @@ default `PATH`, so the examples below use the full path.
 Every `CLAUDE_USAGE_NOTIFY*` variable overrides the matching key in the config file.
 
 ## Notifications
+
+`ntfy` is disabled for Enterprise subscriptions. It is also disabled when the
+current credential source has missing or unknown `subscriptionType` metadata,
+including `CLAUDE_USAGE_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` overrides. The check
+runs before every send, including `--notify-test ntfy`; notification settings
+cannot override it. Free, Pro, Max, and Team subscriptions with recognized
+metadata can use ntfy. Local `desktop`, `terminal`, and `herdr` channels remain
+available. An ntfy test reports failure when policy blocks delivery.
+
+Only HTTPS ntfy servers without URL credentials are accepted. Redirects are
+rejected for both usage requests and ntfy requests. See [enterprise deployment](ENTERPRISE.md).
 
 The CLI can alert you when a window crosses a percentage. The check rides on
 the polling your status bar already does: each fresh fetch compares every
@@ -140,3 +151,21 @@ programmatically. Only `--check` signals failure through its exit code.
 
 See also: [How it works](HOW_IT_WORKS.md) · [Troubleshooting](TROUBLESHOOTING.md) ·
 [AGENTS.md](../AGENTS.md) for the full JSON contract.
+
+## Response and cache privacy
+
+The `raw` JSON field keeps its name for compatibility but contains only selected
+quota fields: window kinds/names, percentages, reset timestamps, recognized
+severity/activity values, and extra-usage enabled/percentage values. Unknown
+response fields, account metadata, and spend amounts are dropped before caching
+and JSON output. Existing raw caches are sanitized on their next read. Cache
+files are atomically replaced with mode 0600. API-provided labels are still
+external text; inspect any diagnostic data before sharing it.
+
+HTTP error bodies and network exception text are not included in diagnostics.
+Display fields are length-limited and stripped of Unicode control characters;
+tmux label markup is escaped.
+
+Phone alerts also require the subscription used for the usage fetch to be
+recognized and non-enterprise. Switching accounts while a fetch is in progress
+cannot make an enterprise response eligible for ntfy delivery.

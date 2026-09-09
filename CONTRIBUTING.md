@@ -40,7 +40,7 @@ is already blocking on.
 
 ## Branch names
 
-`<type>/<slug>`, where type is `feat` `fix` `docs` `chore` or `refactor`.
+`<type>/<slug>`, where type is `feat` `fix` `docs` `chore`, `refactor`, or `codex`.
 
 This is load-bearing, not style: the docs gate strips that prefix, turns
 any remaining `/` into `-`, and looks for docs files named after what's
@@ -138,7 +138,7 @@ tests. It has a second rule on top: a change to `install.sh`,
 a shell script. There is no label that bypasses either rule — if a change
 genuinely can't be tested, say so in the PR and a maintainer decides.
 
-> **First PR here?** Your workflow runs will sit at *"pending approval"*
+> **First PR here?** Your workflow runs wait for maintainer approval
 > until a maintainer clicks "Approve and run". That's a GitHub policy for
 > first-time contributors, not a broken build. Nothing is wrong; wait.
 
@@ -148,3 +148,12 @@ The usage endpoint is undocumented and changes shape occasionally. Fixes
 go in `normalize()` / `_from_limits()` / `_from_legacy()` with a
 regression test using an **anonymized** payload (percentages only — strip
 anything account-identifying from `--format json` output before pasting).
+
+## Dependency updates
+
+Dependabot patch/minor merges wait on `gh pr checks --required --watch
+--fail-fast --interval 30`. A failure, missing required checks, or job timeout
+stops the merge. There is no unchecked fallback. Keep required-check rules
+and code-owner protection enabled; add any new security check to the repository
+rules before relying on it as a merge gate. Actions are pinned to commits and
+the ShellCheck archive is verified against a pinned SHA-256 before extraction.

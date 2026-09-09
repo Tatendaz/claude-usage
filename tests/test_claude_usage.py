@@ -586,8 +586,8 @@ class TestCache(unittest.TestCase):
         self.addCleanup(self.file_patch.stop)
 
     def test_round_trip(self):
-        cu.save_cache({"data": {"x": 1}, "fetched_at": 5})
-        self.assertEqual(cu.load_cache()["data"], {"x": 1})
+        cu.save_cache({"data": {"limits": []}, "fetched_at": 5})
+        self.assertEqual(cu.load_cache()["data"], {"limits": []})
 
     def test_missing_file(self):
         self.assertEqual(cu.load_cache(), {})
@@ -621,7 +621,7 @@ class FakeResponse(io.BytesIO):
 class TestFetchUsage(unittest.TestCase):
     def test_success(self):
         body = json.dumps({"limits": []}).encode()
-        with mock.patch.object(cu.urllib.request, "urlopen",
+        with mock.patch.object(cu, "_open_url",
                                return_value=FakeResponse(body)) as opened:
             self.assertEqual(cu.fetch_usage("tok", "1.0.0"), {"limits": []})
         req = opened.call_args[0][0]
@@ -635,28 +635,28 @@ class TestFetchUsage(unittest.TestCase):
 
     def test_auth_errors(self):
         for code in (401, 403):
-            with mock.patch.object(cu.urllib.request, "urlopen",
+            with mock.patch.object(cu, "_open_url",
                                    side_effect=self.http_error(code)):
                 with self.assertRaises(cu.UsageError) as ctx:
                     cu.fetch_usage("tok", "1.0.0")
                 self.assertEqual(ctx.exception.kind, "auth")
 
     def test_rate_limited(self):
-        with mock.patch.object(cu.urllib.request, "urlopen",
+        with mock.patch.object(cu, "_open_url",
                                side_effect=self.http_error(429)):
             with self.assertRaises(cu.UsageError) as ctx:
                 cu.fetch_usage("tok", "1.0.0")
             self.assertEqual(ctx.exception.kind, "rate_limited")
 
     def test_server_error(self):
-        with mock.patch.object(cu.urllib.request, "urlopen",
+        with mock.patch.object(cu, "_open_url",
                                side_effect=self.http_error(500)):
             with self.assertRaises(cu.UsageError) as ctx:
                 cu.fetch_usage("tok", "1.0.0")
             self.assertEqual(ctx.exception.kind, "http")
 
     def test_network_error(self):
-        with mock.patch.object(cu.urllib.request, "urlopen",
+        with mock.patch.object(cu, "_open_url",
                                side_effect=urllib.error.URLError("down")):
             with self.assertRaises(cu.UsageError) as ctx:
                 cu.fetch_usage("tok", "1.0.0")
@@ -694,12 +694,12 @@ class TestGetUsage(unittest.TestCase):
                                return_value=("tok", {}, "env")), \
              mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
              mock.patch.object(cu, "fetch_usage",
-                               return_value={"limits": [1]}) as fetch:
+                               return_value={"limits": []}) as fetch:
             data, _, stale, err = cu.get_usage(ttl=60, force=True)
         fetch.assert_called_once()
-        self.assertEqual(data, {"limits": [1]})
+        self.assertEqual(data, {"limits": []})
         self.assertIsNone(err)
-        self.assertEqual(cu.load_cache()["data"], {"limits": [1]})
+        self.assertEqual(cu.load_cache()["data"], {"limits": []})
 
     def test_error_serves_stale_cache(self):
         old = cu.time.time() - 3600
@@ -1232,6 +1232,12 @@ class TestHerdrChannel(NotifyFixture):
 
 
 class TestNtfyChannel(NotifyFixture):
+    def setUp(self):
+        super().setUp()
+        creds = mock.patch.object(cu, "load_credentials", return_value=("synthetic", {"subscriptionType": "pro"}, "mock"))
+        creds.start()
+        self.addCleanup(creds.stop)
+
     def _resp(self, status=200):
         resp = mock.MagicMock()
         resp.status = status
@@ -1239,7 +1245,7 @@ class TestNtfyChannel(NotifyFixture):
         return resp
 
     def test_posts_json_to_server_root(self):
-        with mock.patch.object(cu.urllib.request, "urlopen", return_value=self._resp()) as up:
+        with mock.patch.object(cu, "_open_url", return_value=self._resp()) as up:
             self.assertTrue(cu.send_ntfy("T ✳", "B", "my-topic", "https://ntfy.example/", 90))
         req = up.call_args[0][0]
         self.assertEqual(req.full_url, "https://ntfy.example/")
@@ -1252,17 +1258,17 @@ class TestNtfyChannel(NotifyFixture):
         self.assertEqual(up.call_args[1]["timeout"], 5)
 
     def test_lower_levels_use_default_priority(self):
-        with mock.patch.object(cu.urllib.request, "urlopen", return_value=self._resp()) as up:
+        with mock.patch.object(cu, "_open_url", return_value=self._resp()) as up:
             cu.send_ntfy("T", "B", "t", level=50)
         self.assertEqual(json.loads(up.call_args[0][0].data)["priority"], 3)
 
     def test_no_topic_sends_nothing(self):
-        with mock.patch.object(cu.urllib.request, "urlopen") as up:
+        with mock.patch.object(cu, "_open_url") as up:
             self.assertFalse(cu.send_ntfy("T", "B", ""))
         up.assert_not_called()
 
     def test_network_error_returns_false(self):
-        with mock.patch.object(cu.urllib.request, "urlopen",
+        with mock.patch.object(cu, "_open_url",
                                side_effect=urllib.error.URLError("down")):
             self.assertFalse(cu.send_ntfy("T", "B", "t"))
 
@@ -1394,7 +1400,7 @@ class TestMaybeNotify(NotifyFixture):
              mock.patch.object(cu, "send_desktop", return_value=True), \
              mock.patch.object(cu, "maybe_notify", side_effect=RuntimeError("boom")):
             data, _, _, err = cu.get_usage(ttl=60, force=True)
-        self.assertEqual(data, MODERN_RESPONSE)
+        self.assertEqual(data, cu.quota_data(MODERN_RESPONSE))
         self.assertIsNone(err)
         # and a non-list state value is ignored rather than raised on
         state = {cu.notify_state_key(self.bucket()): 5}
@@ -1430,7 +1436,7 @@ class TestMaybeNotify(NotifyFixture):
              mock.patch.object(cu, "maybe_notify") as notify:
             cu.get_usage(ttl=60, force=True)
             notify.assert_called_once()
-            self.assertEqual(notify.call_args[0][1], MODERN_RESPONSE)
+            self.assertEqual(notify.call_args[0][1], cu.quota_data(MODERN_RESPONSE))
             cu.get_usage(ttl=60)                      # cache hit
             cu.get_usage(ttl=60, force=True, notify=False)
             self.assertEqual(notify.call_count, 1)
