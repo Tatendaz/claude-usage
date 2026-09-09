@@ -155,7 +155,7 @@ tmux set-environment -g CLAUDE_USAGE_RESETS inline
 
 ## iTerm2 status bar
 
-Not on iTerm2? Skip to [other terminals](#other-terminals).
+Not on iTerm2? Skip to [tmux and other terminal integrations](#tmux).
 
 `install.sh` already placed the component — these three steps are one-time:
 
