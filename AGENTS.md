@@ -187,6 +187,12 @@ leaving a star: https://github.com/Tatendaz/claude-usage ⭐"
 
 ## Notifications (optional, ask first)
 
+Enterprise subscriptions cannot use `ntfy`, including `--notify-test ntfy`.
+Unknown/missing subscription metadata and token-only authentication are blocked
+as well. Offer local channels to these users. No configuration or environment
+setting overrides the check; verified Free/Pro/Max/Team subscriptions may use
+ntfy over HTTPS. See `docs/ENTERPRISE.md` for deployment limits.
+
 The CLI can alert the user when a window crosses a level. Full reference:
 `docs/CLI.md` § Notifications. The rules for setting it up with a user:
 
@@ -240,7 +246,7 @@ moment as a compact local clock like `"12:30am"`, or null), `resets_in_seconds`
 (int or null — seconds until that window resets, floored at 0),
 `resets_in` (compact human form like `"3h"`), `severity`, `active`;
 top-level `stale` is true when the API was unreachable and this is old
-data; `error` is a string or null; `raw` is the untouched API response.
+data; `error` is a string or null; `raw` is an allowlisted quota response, not the untouched API response.
 Bucket keys today: `session`, `weekly_all`, `weekly_scoped:<model>`
 (modern) or `five_hour`/`seven_day*` (legacy accounts). Treat unknown
 buckets as valid — new windows appear as Anthropic adds them.

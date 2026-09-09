@@ -646,6 +646,13 @@ run_test() {
   fi
 }
 
+test_tmux_checkout_path_is_not_shell_code() {
+  assert_sandboxed
+  if ! python3 "$REPO_ROOT/tests/test_security.py" TmuxPathTests; then
+    fail "tmux checkout path regression"
+  fi
+}
+
 main() {
   if [ ! -x "$REPO_ROOT/install.sh" ] || [ ! -x "$REPO_ROOT/uninstall.sh" ]; then
     printf 'FATAL: install.sh / uninstall.sh not found or not executable under %s\n' \
@@ -671,6 +678,7 @@ main() {
   run_test test_uninstall_removes_only_its_own_cache_directory
   run_test test_uninstall_on_a_never_installed_system_is_a_noop
   run_test test_uninstall_is_idempotent
+  run_test test_tmux_checkout_path_is_not_shell_code
   run_test test_install_and_uninstall_do_not_modify_the_repo_checkout
 
   printf '\n----------------------------------------------------------------------\n'

@@ -23,6 +23,7 @@ stdlib only — no dependencies.
 import argparse
 import contextlib
 import json
+import math
 import os
 import re
 import shutil
@@ -32,6 +33,8 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 API_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -161,12 +164,68 @@ def _safe_plan(value):
     return "unrecognized (%d chars)" % len(plan)
 
 
+def display_text(value):
+    """Bound API display fields and remove terminal/control characters."""
+    return "".join(" " if unicodedata.category(c).startswith("C") else c
+                   for c in str(value))[:160]
+
+
+def quota_data(data):
+    """Allowlist response fields before caching or exposing JSON output."""
+    if not isinstance(data, dict):
+        return {}
+
+    def percent(value):
+        if isinstance(value, bool):
+            return False
+        return isinstance(value, int) or (isinstance(value, float) and math.isfinite(value))
+
+    def reset(value):
+        dt = _parse_when(value)
+        return dt.isoformat() if dt else None
+
+    out = {}
+    if isinstance(data.get("limits"), list):
+        out["limits"] = []
+        for entry in data["limits"]:
+            if not isinstance(entry, dict) or not percent(entry.get("percent")):
+                continue
+            item = {"kind": display_text(entry.get("kind") or "limit"),
+                    "percent": max(0, min(100, entry["percent"])),
+                    "resets_at": reset(entry.get("resets_at"))}
+            if entry.get("severity") in ("normal", "warning", "critical"):
+                item["severity"] = entry["severity"]
+            if isinstance(entry.get("is_active"), bool):
+                item["is_active"] = entry["is_active"]
+            scope = _scope_name(entry)
+            if scope:
+                item["scope"] = {"model": {"display_name": display_text(scope)}}
+            out["limits"].append(item)
+    for key, val in data.items():
+        if isinstance(val, dict) and percent(val.get("utilization")):
+            out[display_text(key)] = {"utilization": max(0, min(100, val["utilization"])),
+                                      "resets_at": reset(val.get("resets_at"))}
+    spend = data.get("spend")
+    if isinstance(spend, dict) and percent(spend.get("percent")):
+        out["spend"] = {"enabled": spend.get("enabled") is True,
+                        "percent": max(0, min(100, spend["percent"]))}
+    return out
+
+
 # ---------------------------------------------------------------------- cache
 
 def load_cache():
     try:
         with open(CACHE_FILE) as f:
-            return json.load(f)
+            cache = json.load(f)
+        if not isinstance(cache, dict):
+            return {}
+        if "data" in cache:
+            safe = quota_data(cache["data"])
+            if safe != cache["data"]:
+                cache["data"] = safe
+                save_cache(cache)  # migrate old raw-response caches on first read
+        return cache
     except (OSError, ValueError):
         return {}
 
@@ -174,6 +233,9 @@ def load_cache():
 def save_cache(cache):
     # Unique temp name per writer: several status bars can refresh at once,
     # and a shared .tmp path would let them corrupt each other's write.
+    cache = dict(cache)
+    if "data" in cache:
+        cache["data"] = quota_data(cache["data"])
     try:
         os.makedirs(CACHE_DIR, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix=".cache-", dir=CACHE_DIR)
@@ -212,6 +274,20 @@ def claude_cli_version(cache):
 
 # ---------------------------------------------------------------------- fetch
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _open_url(request, timeout):
+    # Never forward credentials or notification payloads to redirect targets.
+    try:
+        return urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        error.close()
+        raise
+
+
 def fetch_usage(token, cli_version):
     req = urllib.request.Request(API_URL, headers={
         "Authorization": "Bearer " + token,
@@ -220,22 +296,17 @@ def fetch_usage(token, cli_version):
         "User-Agent": "claude-code/" + cli_version,
     })
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _open_url(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        body = ""
-        try:
-            body = e.read().decode("utf-8", "replace")[:300]
-        except OSError:
-            pass
-        debug("http", e.code, body)
+        debug("usage request failed: HTTP", e.code)
         if e.code in (401, 403):
             raise UsageError("auth", "token rejected (HTTP %d)" % e.code)
         if e.code == 429:
             raise UsageError("rate_limited", "usage endpoint rate-limited (HTTP 429)")
         raise UsageError("http", "HTTP %d from usage endpoint" % e.code)
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        raise UsageError("network", "network error: %s" % getattr(e, "reason", e))
+    except (urllib.error.URLError, OSError, ValueError):
+        raise UsageError("network", "usage request failed (network or invalid response)")
 
 
 def get_usage(ttl, force=False, notify=True):
@@ -255,12 +326,18 @@ def get_usage(ttl, force=False, notify=True):
     else:
         debug("credentials from", source)
         try:
-            data = fetch_usage(token, claude_cli_version(cache))
+            data = quota_data(fetch_usage(token, claude_cli_version(cache)))
             cache.update({"data": data, "fetched_at": now})
             save_cache(cache)
             if notify:
                 try:
-                    maybe_notify(cache, data)
+                    settings = notify_settings()
+                    # Bind phone policy to the account that produced the data,
+                    # not just the credentials present when delivery happens.
+                    if _safe_plan(_meta.get("subscriptionType")) not in ("free", "pro", "max", "team"):
+                        settings["channels"] = [ch for ch in settings["channels"] if ch != "ntfy"]
+                        settings["enabled"] = settings["enabled"] and bool(settings["channels"])
+                    maybe_notify(cache, data, settings=settings)
                 except Exception as e:  # noqa: BLE001 - alerts must never break the bar
                     debug("notify failed:", repr(e))
             return data, now, False, None
@@ -284,7 +361,8 @@ def _parse_when(value):
             if ts > 1e12:
                 ts /= 1000.0
             return datetime.fromtimestamp(ts, tz=timezone.utc)
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except (ValueError, OverflowError, OSError):
         return None
 
@@ -305,7 +383,7 @@ def _scope_name(entry):
 
 
 def _bucket(key, label, title, pct, resets, severity=None, active=None):
-    return {"key": key, "label": label, "title": title,
+    return {"key": display_text(key), "label": display_text(label), "title": display_text(title),
             "pct": max(0.0, min(100.0, float(pct))), "resets": resets,
             "severity": severity, "active": active}
 
@@ -623,9 +701,11 @@ def fmt_tmux(buckets, remaining, stale, resets="off"):
     parts = []
     for b, sfx in zip(buckets, suffixes):
         parts.append("%s #[fg=%s]%s#[default]%s" % (
-            b["label"], tmux_color(b["pct"]), pct_text(b, remaining), sfx))
+            b["label"].replace("#", "##"), tmux_color(b["pct"]),
+            pct_text(b, remaining), sfx.replace("#", "##")))
     tail = fmt_reset_tail(buckets) if style == "tail" else ""
-    return "%s %s%s" % (prefix(stale), " ".join(parts), tail)
+    return "%s %s%s" % (display_text(prefix(stale)).replace("#", "##"),
+                         " ".join(parts), tail.replace("#", "##"))
 
 
 def fmt_long(buckets, remaining, fetched_at, stale):
@@ -669,7 +749,7 @@ def fmt_json(buckets, data, fetched_at, stale, error):
             "severity": b.get("severity"),
             "active": b.get("active"),
         } for b in buckets],
-        "raw": data,
+        "raw": quota_data(data),
     }, indent=2)
 
 
@@ -954,9 +1034,21 @@ def send_herdr(title, body, level=0):
 
 
 def send_ntfy(title, body, topic, server=NTFY_DEFAULT_SERVER, level=0):
-    """Push to an ntfy topic (phone app). JSON publish so any unicode is fine."""
+    """Push only for verified non-enterprise subscriptions over HTTPS."""
     if not topic:
         debug("ntfy: no topic configured")
+        return False
+    # Re-read current credentials here: applies to every caller, including
+    # --notify-test, and cannot be overridden by notification configuration.
+    _token, meta, _source = load_credentials()
+    if _safe_plan(meta.get("subscriptionType")) not in ("free", "pro", "max", "team"):
+        debug("ntfy disabled: enterprise or unverified subscription")
+        return False
+    try:
+        parsed = urllib.parse.urlsplit(server)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            return False
+    except ValueError:
         return False
     payload = json.dumps({
         "topic": topic, "title": title, "message": body,
@@ -967,10 +1059,10 @@ def send_ntfy(title, body, topic, server=NTFY_DEFAULT_SERVER, level=0):
                                  headers={"Content-Type": "application/json",
                                           "User-Agent": "claude-usage"})
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with _open_url(req, timeout=5) as resp:
             return 200 <= resp.status < 300
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        debug("ntfy failed:", getattr(e, "reason", e))
+    except (urllib.error.URLError, OSError, ValueError):
+        debug("ntfy request failed")
         return False
 
 
@@ -1117,7 +1209,7 @@ def run_notify_test(channel):
     hints = {
         "terminal": "needs a real terminal window (not a status bar); tmux needs allow-passthrough on",
         "desktop": "macOS: allow notifications for Script Editor in System Settings → Notifications",
-        "ntfy": "set notify.ntfy_topic (or CLAUDE_USAGE_NTFY_TOPIC) and subscribe to it in the ntfy app",
+        "ntfy": "requires a verified non-enterprise subscription, an HTTPS server and a configured topic; enterprise and unknown plans are blocked",
         "herdr": "needs herdr installed and its server running (herdr status)",
     }
     ok = True
@@ -1180,7 +1272,7 @@ def run_check(ttl):
 
     if token:
         try:
-            data = fetch_usage(token, claude_cli_version(cache))
+            data = quota_data(fetch_usage(token, claude_cli_version(cache)))
             cache.update({"data": data, "fetched_at": time.time()})
             save_cache(cache)
             buckets = normalize(data)

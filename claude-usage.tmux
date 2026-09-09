@@ -7,7 +7,10 @@
 # The placeholder expands to a colored segment like:  ✳ 5h 8% wk 10% fable 17%
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-usage_cmd="#(\"$CURRENT_DIR/bin/claude-usage\" --format tmux)"
+# Encode the path as octal bytes: neither shell syntax nor tmux format/job
+# delimiters from a checkout name may become executable status-line text.
+encoded_path="$(printf '%s' "$CURRENT_DIR/bin/claude-usage" | od -An -v -to1 | awk '{for (i=1; i<=NF; i++) printf "\\%s", $i}')"
+usage_cmd="#(exec \"\$(printf '$encoded_path')\" --format tmux)"
 
 do_interpolation() {
   local content="$1"
