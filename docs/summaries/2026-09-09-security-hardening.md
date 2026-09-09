@@ -28,3 +28,13 @@ Added offline regression tests, updated the security policy and enterprise/CLI
 guides, and moved the README's detailed terminal gallery/setup to the terminal
 guide. The source remains standard-library-only. Validation and the review
 verdict are reported on the PR; no enterprise certification or SLA is claimed.
+
+## CodeRabbit follow-up, 2026-09-10
+
+The user asked to fix CodeRabbit comments and to expect its review after PR
+updates. Addressed all three findings: conditional notification setup guidance,
+the README notifications link, and case-insensitive redirect response headers.
+The redirect test now asserts that the production guard runs and compares it
+against a permissive control with mocked HTTP and HTTPS transports. Disabling
+the guard demonstrably follows the redirect and forwards the synthetic header.
+PR review remains part of the completion checks after pushes.

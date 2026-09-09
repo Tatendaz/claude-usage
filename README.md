@@ -66,7 +66,7 @@ First run may pop a macOS Keychain dialog — click **Always Allow**, not
   thin adapter.
 - **Alerts, if you want them** — a terminal, macOS, or phone (ntfy) alert
   at 50, 80, and 90 % of each window, once per crossing per reset. See
-  [Notifications](#notifications) below.
+  [Notifications](docs/CLI.md#notifications).
 - **Fails honestly** — offline, it shows your last good numbers marked `✳~`;
   an expired login says so instead of showing zeros; `!` flags any window
   ≥ 90 % full.

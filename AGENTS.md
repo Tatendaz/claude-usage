@@ -202,12 +202,18 @@ The CLI can alert the user when a window crosses a level. Full reference:
    something else: `minimal` (90 % only), `early` (25/50/75/90), or
    **custom** — ask for their own percentages and write them to `levels`
    (e.g. `"levels": [40, 70]`; `levels` overrides `preset`).
-2. **Ask where.** Exactly one question: "Where do you want the alert —
-   in the terminal, as a macOS notification, or on your phone (ntfy app)?"
-   When `HERDR_ENV` is set, add "… or as a toast inside herdr?" to that
-   question. Map the answer to `channels`: `terminal`, `desktop`, `ntfy`,
-   `herdr` (any mix). One successful channel completes an alert; the
-   others are not retried.
+2. **Check eligibility, then ask where.** Offer ntfy only when the current
+   credential source has confirmed `subscriptionType` metadata of Free, Pro,
+   Max, or Team. Use the safe subscription summary from the install self-check;
+   never print or inspect raw credentials for this choice. Enterprise, unknown
+   or missing metadata, and token-only authentication are not eligible. If
+   eligibility has not been established, offer only local channels.
+   Ask exactly one channel question using eligible options: "Where do you want
+   the alert: in the terminal or as a macOS notification?" For eligible users,
+   add "or on your phone (ntfy app)?" When `HERDR_ENV` is set, include "or as a
+   toast inside herdr?" Map the answer to `terminal`, `desktop`, `ntfy`, `herdr`
+   as applicable. One successful channel completes an alert; the others are
+   not retried.
    Guidance for the pick: `terminal` only works from a real terminal window
    (prompt, Claude Code statusline) — if their only poller is the iTerm2
    status bar or tmux, recommend `desktop`. `ntfy` needs the free ntfy app
@@ -217,8 +223,12 @@ The CLI can alert the user when a window crosses a level. Full reference:
    app (anyone who knows the topic can read the alerts).
 3. **Write the file** `${XDG_CONFIG_HOME:-$HOME/.config}/claude-usage/config.json`
    (show it first).
-   `channels` is exactly what the user picked in step 2; `ntfy_topic` is the
-   generated topic when `ntfy` is among them, otherwise omit it. For a user
+   Persist only eligible channels the user selected in step 2. Do not write
+   `ntfy` or `ntfy_topic` for blocked or unverified subscriptions. If a blocked
+   user requests phone alerts, explain the restriction and let them choose a
+   local channel rather than saving a configuration that cannot deliver.
+   `ntfy_topic` is the generated topic only when an eligible user selected ntfy;
+   otherwise omit it. For a user
    who chose the Mac popup plus the phone:
 
    ```json
@@ -226,7 +236,10 @@ The CLI can alert the user when a window crosses a level. Full reference:
    ```
 
 4. **Verify** with `~/.local/bin/claude-usage --notify-test` — every chosen
-   channel must show ✓. On macOS the first `desktop` alert may need the user
+   eligible channel must show ✓. The CLI applies the same subscription policy
+   to `--notify-test ntfy`; do not try to bypass a blocked result. If the account
+   changed since setup, remove any newly ineligible ntfy configuration and
+   verify the remaining user-selected local channels. On macOS the first `desktop` alert may need the user
    to allow notifications for "Script Editor" in System Settings.
 
 ## Reading quota programmatically
@@ -272,3 +285,12 @@ break); rely on `error`/`buckets` in the JSON, not the exit code. Only
   only data that leaves the CLI.
 - PRs need a `docs/features/` entry and a `docs/summaries/` entry (CI
   enforces this; see CONTRIBUTING.md).
+
+## PR review completion
+
+After opening or updating a PR, expect CodeRabbit feedback. Check the review
+threads, address validated findings, and obtain a verdict covering the current
+HEAD before reporting the PR as clean. Passing CI alone is not a review verdict.
+If review has not finished, report it explicitly and continue the review follow-up.
+Gate every review trigger through the shared CodeRabbit budget above; never
+assume a push to an `@coderabbitai ignore` PR automatically requests a review.

@@ -1,5 +1,6 @@
 """Security regressions: synthetic credentials and local/mock transports only."""
 import io
+from email.message import Message
 import json
 import os
 from pathlib import Path
@@ -29,27 +30,59 @@ class SecurityTests(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def test_authenticated_redirects_never_reach_second_host(self):
+        """Exercise redirect rejection and a fully offline permissive control."""
         original = urllib.request.build_opener
+        redirect = cu['NoRedirect'].redirect_request
         for status in (301, 302, 303, 307, 308):
             for target in ('https://other.invalid/collect', 'http://other.invalid/collect', cu['API_URL'] + '?next'):
-                requests = []
+                supported = hasattr(urllib.request.HTTPRedirectHandler, 'http_error_%d' % status)
+                for protected in (True, False):
+                    requests = []
 
-                class Transport(urllib.request.HTTPSHandler):
-                    def https_open(self, req):
-                        requests.append(req)
-                        response = addinfourl(io.BytesIO(b''), {'Location': target}, req.full_url, status)
-                        response.msg = 'redirect'
-                        return response
+                    class Transport(urllib.request.HTTPHandler, urllib.request.HTTPSHandler):
+                        def http_open(self, req):
+                            requests.append(req)
+                            headers = Message()
+                            if len(requests) == 1:
+                                headers['Location'] = target
+                                response = addinfourl(io.BytesIO(b''), headers, req.full_url, status)
+                            else:
+                                response = addinfourl(io.BytesIO(b'{"limits": []}'), headers, req.full_url, 200)
+                            response.msg = 'synthetic response'
+                            return response
 
-                def opener(handler):
-                    return original(handler, Transport())
+                        https_open = http_open
 
-                with self.subTest(status=status, target=target), \
-                        mock.patch.object(urllib.request, 'build_opener', side_effect=opener):
-                    with self.assertRaises(cu['UsageError']):
-                        cu['fetch_usage']('SYNTHETIC', '0.0.0')
-                    self.assertEqual(len(requests), 1)
-                    self.assertEqual(requests[0].full_url, cu['API_URL'])
+                    def opener(handler):
+                        if not protected:
+                            handler = urllib.request.HTTPRedirectHandler()
+                        return original(handler, Transport(), urllib.request.ProxyHandler({}))
+
+                    with self.subTest(status=status, target=target, protected=protected), \
+                            mock.patch.object(urllib.request, 'build_opener', side_effect=opener), \
+                            mock.patch.object(cu['NoRedirect'], 'redirect_request',
+                                              autospec=True, side_effect=redirect) as guard:
+                        if protected or not supported:
+                            with self.assertRaises(cu['UsageError']) as caught:
+                                cu['fetch_usage']('SYNTHETIC', '0.0.0')
+                            self.assertEqual(caught.exception.kind, 'http')
+                            if supported:
+                                guard.assert_called_once()
+                            else:
+                                # Python 3.9 rejects 308 in the default error
+                                # handler before any redirect hook is reached.
+                                guard.assert_not_called()
+                            self.assertEqual(len(requests), 1)
+                        else:
+                            # This control must follow the redirect using only
+                            # fake HTTP/HTTPS transports, proving the fixture
+                            # would catch removal of the production guard.
+                            self.assertEqual(cu['fetch_usage']('SYNTHETIC', '0.0.0'), {'limits': []})
+                            guard.assert_not_called()
+                            self.assertEqual(len(requests), 2)
+                            self.assertEqual(requests[1].full_url, target)
+                            self.assertEqual(requests[1].get_header('Authorization'), 'Bearer SYNTHETIC')
+                        self.assertEqual(requests[0].full_url, cu['API_URL'])
 
     def test_errors_do_not_reflect_credentials(self):
         marker = 'SYNTHETIC_CREDENTIAL'
