@@ -1106,6 +1106,22 @@ class TestDueNotifications(NotifyFixture):
         self.assertEqual(self.fire([new], state), [90])
         self.assertEqual(list(state), [cu.notify_state_key(new)])
 
+    def test_reset_time_jitter_does_not_refire(self):
+        """The API re-stamps resets_at with fresh microseconds on every fetch;
+        the same window must not read as a new one (regression: an alert
+        storm of one ntfy push per 30s poll, six status-bar variants deep)."""
+        state = {}
+        base = utc(hours=1).replace(second=0, microsecond=0)
+        first = self.bucket(pct=72, resets=base.replace(microsecond=131071))
+        self.assertEqual(self.fire([first], state), [50])
+        for us in (138753, 162641, 999999):
+            again = self.bucket(pct=72, resets=base.replace(microsecond=us))
+            self.assertEqual(self.fire([again], state), [], "jitter %d refired" % us)
+        self.assertEqual(len(state), 1)
+        # a genuinely different window (a minute or more apart) still re-arms
+        later = self.bucket(pct=72, resets=base + timedelta(minutes=1))
+        self.assertEqual(self.fire([later], state), [50])
+
     def test_unwanted_bucket_is_ignored(self):
         state = {}
         apps = self.bucket("seven_day_oauth_apps", pct=99, label="apps", title="apps")

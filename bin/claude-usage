@@ -896,8 +896,18 @@ def notify_wants(bucket, wanted):
 
 
 def notify_state_key(bucket):
+    """Window identity for the "already sent" ledger.
+
+    The API stamps `resets_at` with fresh microseconds on every fetch
+    (…:00.131071, …:00.138753, …:00.162641 for the same 5-hour window), so
+    keying on the raw timestamp made each poll look like a brand-new window
+    and re-fired the alert on every refresh. Truncate to the minute — no
+    real window resets more often than that.
+    """
     resets = bucket.get("resets")
-    return bucket["key"] + "|" + (resets.isoformat() if resets else "-")
+    if not resets:
+        return bucket["key"] + "|-"
+    return bucket["key"] + "|" + resets.replace(second=0, microsecond=0).isoformat()
 
 
 def _levels(value):
