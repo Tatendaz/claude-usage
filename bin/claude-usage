@@ -250,6 +250,34 @@ def save_cache(cache):
         debug("cache write failed:", e)
 
 
+# Keys under `maybe_notify`'s lock, not a fetcher's to rewrite (see save_quota).
+NOTIFY_LEDGER_KEYS = ("notified", "notify_pending")
+
+
+def save_quota(cache, data, now):
+    """Persist a fresh fetch without clobbering another poller's alert ledger.
+
+    `cache` is read before the network round-trip, so its `notified` /
+    `notify_pending` are a snapshot from seconds ago. A sibling poller can
+    alert in that gap; writing our stale snapshot back makes that alert look
+    unsent, and the next fetch fires it again. Several status bars refreshing
+    together turned that into duplicate-alert storms — the same window
+    announced six times in one second.
+
+    So the quota payload is ours to overwrite and the ledger is not: re-read
+    it from disk under the same lock `maybe_notify` uses to update it.
+    """
+    with notify_lock():
+        latest = load_cache()
+        merged = {k: v for k, v in cache.items() if k not in NOTIFY_LEDGER_KEYS}
+        merged.update({k: latest[k] for k in NOTIFY_LEDGER_KEYS if k in latest})
+        merged.update({"data": data, "fetched_at": now})
+        save_cache(merged)
+    cache.clear()
+    cache.update(merged)
+    return merged
+
+
 def claude_cli_version(cache):
     """Detect the installed Claude Code version (for the User-Agent header).
 
@@ -327,8 +355,7 @@ def get_usage(ttl, force=False, notify=True):
         debug("credentials from", source)
         try:
             data = quota_data(fetch_usage(token, claude_cli_version(cache)))
-            cache.update({"data": data, "fetched_at": now})
-            save_cache(cache)
+            save_quota(cache, data, now)
             if notify:
                 try:
                     settings = notify_settings()
@@ -1273,8 +1300,7 @@ def run_check(ttl):
     if token:
         try:
             data = quota_data(fetch_usage(token, claude_cli_version(cache)))
-            cache.update({"data": data, "fetched_at": time.time()})
-            save_cache(cache)
+            save_quota(cache, data, time.time())
             buckets = normalize(data)
             row(True, "usage endpoint reachable, %d window(s) reported" % len(buckets))
             for b in buckets:

@@ -701,6 +701,26 @@ class TestGetUsage(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(cu.load_cache()["data"], {"limits": []})
 
+    def test_fetch_keeps_a_sibling_pollers_ledger(self):
+        # our cache copy is read before the request; a sibling poller alerts
+        # while it is in flight, and our write must not undo that record
+        ledger = {"session|2026-09-13T10:00:00+00:00": [50]}
+
+        def fetch(*_a, **_k):
+            other = cu.load_cache()
+            other["notified"] = ledger
+            cu.save_cache(other)
+            return {"limits": []}
+
+        with mock.patch.object(cu, "load_credentials",
+                               return_value=("tok", {}, "env")), \
+             mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
+             mock.patch.object(cu, "fetch_usage", side_effect=fetch):
+            cu.get_usage(ttl=60, force=True)
+        saved = cu.load_cache()
+        self.assertEqual(saved["notified"], ledger)      # sibling's alert survives
+        self.assertEqual(saved["data"], {"limits": []})  # our fetch still lands
+
     def test_error_serves_stale_cache(self):
         old = cu.time.time() - 3600
         cu.save_cache({"data": {"limits": []}, "fetched_at": old})
@@ -1271,6 +1291,39 @@ class TestNtfyChannel(NotifyFixture):
         with mock.patch.object(cu, "_open_url",
                                side_effect=urllib.error.URLError("down")):
             self.assertFalse(cu.send_ntfy("T", "B", "t"))
+
+
+class TestSaveQuota(NotifyFixture):
+    def test_writes_the_fetch_and_reloads_the_ledger(self):
+        cu.save_cache({"notified": {"session|x": [50]},
+                       "notify_pending": {"session|y": {"levels": [50], "at": 1.0}}})
+        stale = {"cli_version": "1.0.0"}        # read before the sibling alerted
+        cu.save_quota(stale, {"limits": []}, 123.0)
+        saved = cu.load_cache()
+        self.assertEqual(saved["data"], {"limits": []})
+        self.assertEqual(saved["fetched_at"], 123.0)
+        self.assertEqual(saved["cli_version"], "1.0.0")
+        self.assertEqual(saved["notified"], {"session|x": [50]})
+        self.assertEqual(saved["notify_pending"], {"session|y": {"levels": [50], "at": 1.0}})
+        self.assertEqual(stale["notified"], {"session|x": [50]})   # caller sees it too
+
+    def test_empty_disk_ledger_leaves_no_stale_keys(self):
+        stale = {"notified": {"gone|x": [50]}, "notify_pending": {"gone|y": {}}}
+        cu.save_quota(stale, {"limits": []}, 123.0)
+        saved = cu.load_cache()
+        self.assertNotIn("notified", saved)
+        self.assertNotIn("notify_pending", saved)
+
+    def test_a_second_pollers_write_does_not_refire_the_alert(self):
+        # the duplicate-alert storm: two status bars fetch at the same moment
+        settings = cu.notify_settings({"notify": {"channels": ["desktop"]}}, {})
+        data = {"limits": [{"kind": "session", "percent": 93, "resets_at": iso(utc(hours=2))}]}
+        with mock.patch.object(cu, "send_notification", return_value={"desktop": True}) as send:
+            cu.maybe_notify({}, data, settings)               # poller A alerts
+            stale = {}                                        # poller B, read before that
+            cu.save_quota(stale, data, cu.time.time())        # B persists its own fetch
+            cu.maybe_notify(stale, data, settings)            # B must stay quiet
+        self.assertEqual(send.call_count, 1)
 
 
 class TestMaybeNotify(NotifyFixture):
