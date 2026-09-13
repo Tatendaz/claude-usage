@@ -56,3 +56,12 @@ an `msvcrt` byte-range lock on the same file. Four tests cover the Unix path,
 the Windows fallback (via `None` in `sys.modules` to make the `fcntl` import
 fail), the body still running when no lock can be taken, and alerts still
 de-duplicating in that unlocked case.
+
+## CodeRabbit round 2
+
+One minor finding, and a fair one: `test_unix_takes_and_releases_an_flock` did a
+bare `import fcntl`, which raises on the native Windows the same round had just
+taught the lock to support. The test now mocks the module through `sys.modules`
+like the Windows test does, so it asserts the same `LOCK_EX` / `LOCK_UN` pair on
+any platform. A separate `test_real_platform_lock_round_trips`, skipped on
+Windows, still runs the unmocked POSIX path.

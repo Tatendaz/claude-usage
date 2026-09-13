@@ -1311,12 +1311,23 @@ class TestNtfyChannel(NotifyFixture):
 
 class TestNotifyLock(NotifyFixture):
     def test_unix_takes_and_releases_an_flock(self):
-        import fcntl
-        with mock.patch.object(fcntl, "flock") as flock:
+        # mock the module, not its attribute: a bare `import fcntl` here would
+        # raise on the native Windows this branch just taught the lock to use
+        fcntl = mock.Mock(LOCK_EX="lock", LOCK_UN="unlock")
+        with mock.patch.dict(sys.modules, {"fcntl": fcntl}):
             with cu.notify_lock():
                 pass
-        self.assertEqual([c.args[1] for c in flock.call_args_list],
-                         [fcntl.LOCK_EX, fcntl.LOCK_UN])
+        self.assertEqual([c.args[1] for c in fcntl.flock.call_args_list],
+                         ["lock", "unlock"])
+
+    @unittest.skipIf(sys.platform == "win32", "exercises the POSIX branch")
+    def test_real_platform_lock_round_trips(self):
+        # no module mocks: the real fcntl path runs, and the body still runs
+        ran = []
+        with cu.notify_lock():
+            ran.append(True)
+        self.assertEqual(ran, [True])
+        self.assertTrue(os.path.exists(os.path.join(cu.CACHE_DIR, "notify.lock")))
 
     def test_windows_falls_back_to_an_msvcrt_byte_lock(self):
         # native Windows has no fcntl; None in sys.modules makes the import fail
