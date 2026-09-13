@@ -14,7 +14,7 @@ itself, with the reset time stored inside the record and compared with slack.
 minute, which covered microsecond drift. The drift is larger than that. Sampled
 from the live endpoint, one weekly window reported:
 
-```
+```text
 09:59:59.922129   ->  ledger key ...|09:59:00
 10:00:00.319455   ->  ledger key ...|10:00:00
 10:00:00.015092   ->  ledger key ...|10:00:00

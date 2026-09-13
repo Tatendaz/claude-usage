@@ -979,10 +979,11 @@ def _same_window(entry, bucket):
     if recorded is None or resets is None:
         return recorded is None and resets is None
     try:
-        previous = datetime.fromisoformat(str(recorded))
+        # the comparison is inside the guard too: a stamp persisted without a
+        # zone parses fine and then raises TypeError against an aware `resets`
+        return abs(resets - datetime.fromisoformat(str(recorded))) <= WINDOW_SLACK
     except (TypeError, ValueError):
         return False
-    return abs(resets - previous) <= WINDOW_SLACK
 
 
 def due_notifications(buckets, settings, state, reserved=None):

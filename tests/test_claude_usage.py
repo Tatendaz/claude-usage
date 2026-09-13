@@ -1149,6 +1149,15 @@ class TestDueNotifications(NotifyFixture):
                              "drift to %s refired" % d)
         self.assertEqual(len(state), 1)
 
+    def test_a_corrupt_anchor_alerts_instead_of_crashing(self):
+        # a stamp persisted without a zone parses fine, then raises TypeError
+        # against an aware resets; alerts must not die on a hand-edited cache
+        base = utc(hours=1)
+        for bad in ("2026-09-15T10:00:00", "not-a-date", 5, None):
+            state = {"session": {"levels": [50, 80, 90], "resets": bad}}
+            self.assertEqual(self.fire([self.bucket(pct=72, resets=base)], state), [50],
+                             "anchor %r did not re-arm" % (bad,))
+
     def test_a_rolled_over_window_re_arms(self):
         state = {}
         base = utc(hours=1).replace(second=0, microsecond=0)
