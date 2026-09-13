@@ -33,6 +33,11 @@ written.
   so it never carries a ledger the file has moved past.
 - `get_usage` and `run_check` both write through it. They were the only two
   places that persisted a fetch.
+- `notify_lock` now takes a real interprocess lock on native Windows as well.
+  It used to `yield` unlocked when `fcntl` was missing, so both the alert
+  ledger and this new merge were unprotected there. `_lock_file` picks
+  `fcntl.flock` (Unix, WSL) or an `msvcrt` byte-range lock on the same file,
+  and returns the matching unlock.
 - Tests: `test_fetch_keeps_a_sibling_pollers_ledger` drives the real race
   through `get_usage` (a sibling records an alert while the request is in
   flight) and fails on the previous code. `TestSaveQuota` covers the merge,
@@ -40,5 +45,10 @@ written.
 
 ## Notes
 The lock is held for a file read and a file write, never across the network
-request or a delivery channel. On Windows, where `flock` is unavailable, the
-merge still runs — it is narrower than the old write, but unsynchronised.
+request or a delivery channel.
+
+Review raised that the new merge leans on a lock that did nothing on native
+Windows, so `notify_lock` now locks there too (see above). If the lock cannot
+be taken at all — an unwritable cache directory, a platform with neither
+module — the body still runs unsynchronised, because a status bar that alerts
+twice beats one that stops updating.

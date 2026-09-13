@@ -1121,32 +1121,55 @@ def send_notification(settings, title, body, level=0, channels=None):
     return results
 
 
+def _lock_file(fd):
+    """Take an exclusive interprocess lock on `fd`; return the unlock callable.
+
+    `fcntl.flock` covers Unix and WSL. Native Windows has no flock, so lock the
+    first byte of the same file with `msvcrt` instead — different API, same
+    mutual exclusion between processes. `LK_LOCK` retries for about ten seconds
+    and then raises, which the caller handles like any other lock failure.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        import msvcrt
+
+        def _msvcrt(mode):
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, mode, 1)
+
+        _msvcrt(msvcrt.LK_LOCK)
+        return lambda: _msvcrt(msvcrt.LK_UNLCK)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return lambda: fcntl.flock(fd, fcntl.LOCK_UN)
+
+
 @contextlib.contextmanager
 def notify_lock():
     """Serialize the sent-state read-modify-write across CLI processes.
 
     Several status bars can refresh in the same second; without this two of
-    them could both see a level as unsent and both alert. flock is Unix-only
-    (Windows runs unlocked and can, rarely, double-alert).
+    them could both see a level as unsent and both alert, and `save_quota`
+    could drop an entry a sibling had just recorded. If the lock cannot be
+    taken at all the body still runs — an unsynchronised alert beats no
+    status bar.
     """
-    try:
-        import fcntl
-    except ImportError:
-        yield
-        return
-    fd = None
+    fd = unlock = None
     try:
         os.makedirs(CACHE_DIR, exist_ok=True)
         fd = os.open(os.path.join(CACHE_DIR, "notify.lock"), os.O_RDWR | os.O_CREAT, 0o600)
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    except OSError as e:
+        unlock = _lock_file(fd)
+    except (OSError, ImportError) as e:
         debug("notify lock unavailable, continuing unlocked:", e)
     try:
         yield
     finally:
         if fd is not None:
             try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                if unlock is not None:
+                    unlock()
+            except OSError as e:
+                debug("notify unlock failed:", e)
             finally:
                 os.close(fd)
 

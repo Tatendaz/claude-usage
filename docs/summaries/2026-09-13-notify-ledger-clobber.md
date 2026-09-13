@@ -41,3 +41,18 @@ true after it, so no wording changed.
 The account's weekly windows sat at 66% (all models) and 99% (Fable), so every
 configured level was crossed and each erase re-fired all of them. The storm was
 loud because usage was high, but the defect is independent of usage level.
+
+## CodeRabbit round 1
+
+The review flagged one major finding: `save_quota` reloads and replaces the
+whole cache under `notify_lock`, which yielded without locking on native
+Windows, so concurrent pollers there could still lose ledger entries.
+
+The gap predates this branch — `maybe_notify` had the same exposure and the
+docstring admitted it — and `docs/index.md` lists native Windows as a planned
+port rather than a supported platform. It is still real, and the fix is small,
+so it was fixed rather than argued: `_lock_file` now resolves `fcntl.flock` or
+an `msvcrt` byte-range lock on the same file. Four tests cover the Unix path,
+the Windows fallback (via `None` in `sys.modules` to make the `fcntl` import
+fail), the body still running when no lock can be taken, and alerts still
+de-duplicating in that unlocked case.
