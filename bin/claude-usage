@@ -922,19 +922,28 @@ def notify_wants(bucket, wanted):
     return any(w.strip().lower() in {n.lower() for n in names} for w in wanted)
 
 
-def notify_state_key(bucket):
-    """Window identity for the "already sent" ledger.
+# How far `resets_at` may move and still describe the same window. The API
+# re-stamps it on every fetch and the value wobbles by about a second, which
+# is enough to cross a boundary when a window resets on the hour. Real
+# windows are 5 hours and 7 days apart, so this is a wide, safe margin.
+WINDOW_SLACK = timedelta(minutes=15)
 
-    The API stamps `resets_at` with fresh microseconds on every fetch
-    (…:00.131071, …:00.138753, …:00.162641 for the same 5-hour window), so
-    keying on the raw timestamp made each poll look like a brand-new window
-    and re-fired the alert on every refresh. Truncate to the minute — no
-    real window resets more often than that.
+
+def notify_state_key(bucket):
+    """Ledger identity for a window: the window itself, not its reset stamp.
+
+    The reset stamp cannot be part of the key. The API re-stamps `resets_at`
+    on every fetch and the value drifts — first by microseconds, and then by
+    about a second, which straddles a boundary whenever a window resets on
+    the hour (…09:59:59.9, then …10:00:00.2, for one window). Every drift
+    across that boundary read as a brand-new window, dropped the record of
+    what had been announced, and re-fired every crossed level, so a week
+    parked at 99% alerted every couple of minutes forever.
+
+    The reset stamp is kept inside the record instead, where `_same_window`
+    can compare it with slack (see WINDOW_SLACK).
     """
-    resets = bucket.get("resets")
-    if not resets:
-        return bucket["key"] + "|-"
-    return bucket["key"] + "|" + resets.replace(second=0, microsecond=0).isoformat()
+    return bucket["key"]
 
 
 def _levels(value):
@@ -944,7 +953,39 @@ def _levels(value):
     return set(int(x) for x in value if isinstance(x, (int, float)))
 
 
-def due_notifications(buckets, settings, state):
+def _anchor(bucket):
+    """The reset stamp stored with a record, as ISO text or None."""
+    resets = bucket.get("resets")
+    return resets.isoformat() if resets else None
+
+
+def _entry(levels, anchor):
+    """One ledger record: levels already announced, and the window they belong to."""
+    return {"levels": sorted(_levels(levels)), "resets": anchor}
+
+
+def _same_window(entry, bucket):
+    """True when `entry` records the window `bucket` is reporting now.
+
+    A reset within WINDOW_SLACK of the recorded one is drift, so the record
+    still applies. A reset further out means the window rolled over and every
+    level re-arms. Records written by an older version — a bare level list,
+    or no stamp at all — do not match, so the window alerts once more and is
+    then stored in the current shape.
+    """
+    if not isinstance(entry, dict):
+        return False
+    recorded, resets = entry.get("resets"), bucket.get("resets")
+    if recorded is None or resets is None:
+        return recorded is None and resets is None
+    try:
+        previous = datetime.fromisoformat(str(recorded))
+    except (TypeError, ValueError):
+        return False
+    return abs(resets - previous) <= WINDOW_SLACK
+
+
+def due_notifications(buckets, settings, state, reserved=None):
     """Return [(bucket, level, crossed)] to fire now; prunes `state` in place.
 
     Fires only the highest crossed level per window (one alert, not three,
@@ -952,7 +993,12 @@ def due_notifications(buckets, settings, state):
     below the current percentage — the caller records all of them once the
     alert is delivered (see maybe_notify), so lower levels never fire late.
     Entries for windows that no longer exist (they reset) are dropped.
+
+    `reserved` maps a window key to the levels another process is delivering
+    right now. A reservation always describes the poll happening now, so its
+    levels count as sent whatever stamp they were written with.
     """
+    reserved = reserved or {}
     due = []
     live = set()
     for b in buckets:
@@ -960,12 +1006,17 @@ def due_notifications(buckets, settings, state):
             continue
         k = notify_state_key(b)
         live.add(k)
-        sent = _levels(state.get(k))
+        entry = state.get(k) or {}
+        same = _same_window(entry, b)
+        sent = (_levels(entry.get("levels")) if same else set()) | _levels(reserved.get(k))
+        # keep the original stamp while the window holds, so drift cannot
+        # creep the anchor forward one fetch at a time
+        anchor = entry.get("resets") if same else _anchor(b)
         crossed = [lvl for lvl in settings["levels"] if b["pct"] >= lvl]
         new = [lvl for lvl in crossed if lvl not in sent]
         if new:
             due.append((b, max(new), crossed))
-        state[k] = sorted(sent)
+        state[k] = _entry(sent, anchor)
     for k in list(state):
         if k not in live:
             del state[k]
@@ -974,7 +1025,10 @@ def due_notifications(buckets, settings, state):
 
 def mark_sent(state, bucket, levels):
     k = notify_state_key(bucket)
-    state[k] = sorted(_levels(state.get(k)) | _levels(levels))
+    entry = state.get(k) or {}
+    same = _same_window(entry, bucket)
+    merged = (_levels(entry.get("levels")) if same else set()) | _levels(levels)
+    state[k] = _entry(merged, entry.get("resets") if same else _anchor(bucket))
 
 
 def notify_message(bucket, level, now=None):
@@ -1213,17 +1267,18 @@ def maybe_notify(cache, data, settings=None):
     with notify_lock():
         latest = load_cache()
         sent, pending = _notify_state(latest)
-        # levels another process is delivering right now count as sent
-        view = {k: sorted(_levels(v) | _levels((pending.get(k) or {}).get("levels")))
+        # a scratch copy, so reserved levels are never written back as sent
+        view = {k: _entry(v.get("levels") if isinstance(v, dict) else None,
+                          v.get("resets") if isinstance(v, dict) else None)
                 for k, v in sent.items()}
-        for k, entry in pending.items():
-            view.setdefault(k, sorted(_levels(entry.get("levels"))))
-        due = due_notifications(buckets, settings, view)
+        reserved = {k: h.get("levels") for k, h in pending.items() if isinstance(h, dict)}
+        due = due_notifications(buckets, settings, view, reserved)
         for k in list(sent):
             if k not in view:
                 del sent[k]          # window reset → its record is gone
         for bucket, _level, crossed in due:
-            pending[notify_state_key(bucket)] = {"levels": crossed, "at": time.time()}
+            pending[notify_state_key(bucket)] = {"levels": crossed, "at": time.time(),
+                                                 "resets": _anchor(bucket)}
         latest["notified"], latest["notify_pending"] = sent, pending
         cache["notified"] = sent
         save_cache(latest)
