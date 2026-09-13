@@ -1099,7 +1099,7 @@ class TestDueNotifications(NotifyFixture):
         self.assertEqual([(x["key"], lvl, crossed) for x, lvl, crossed in due],
                          [("session", 90, [50, 80, 90])])
         cu.mark_sent(state, b, [50, 80, 90])
-        self.assertEqual(state[cu.notify_state_key(b)], [50, 80, 90])  # lower levels marked too
+        self.assertEqual(state[cu.notify_state_key(b)]["levels"], [50, 80, 90])  # lower too
         self.assertEqual(cu.due_notifications([b], self.SETTINGS, state), [])
 
     def test_unsent_level_is_offered_again(self):
@@ -1126,20 +1126,44 @@ class TestDueNotifications(NotifyFixture):
         self.assertEqual(self.fire([new], state), [90])
         self.assertEqual(list(state), [cu.notify_state_key(new)])
 
-    def test_reset_time_jitter_does_not_refire(self):
-        """The API re-stamps resets_at with fresh microseconds on every fetch;
-        the same window must not read as a new one (regression: an alert
-        storm of one ntfy push per 30s poll, six status-bar variants deep)."""
+    def test_reset_time_drift_does_not_refire(self):
+        """The API re-stamps resets_at on every fetch and the value drifts.
+
+        First it drifted by microseconds. Then by about a second — which
+        crosses a boundary whenever a window resets on the hour, as the
+        weekly ones do (…09:59:59.9, then …10:00:00.2, for one window).
+        Every crossing read as a new window and re-announced every level,
+        so a week parked at 99% alerted every couple of minutes forever.
+        """
         state = {}
         base = utc(hours=1).replace(second=0, microsecond=0)
         first = self.bucket(pct=72, resets=base.replace(microsecond=131071))
         self.assertEqual(self.fire([first], state), [50])
-        for us in (138753, 162641, 999999):
-            again = self.bucket(pct=72, resets=base.replace(microsecond=us))
-            self.assertEqual(self.fire([again], state), [], "jitter %d refired" % us)
+        drifts = [base.replace(microsecond=us) for us in (138753, 162641, 999999)]
+        drifts += [base - timedelta(milliseconds=100),   # back over the boundary
+                   base - timedelta(seconds=1),
+                   base + timedelta(seconds=1),
+                   base + timedelta(minutes=14)]         # still inside the slack
+        for d in drifts:
+            self.assertEqual(self.fire([self.bucket(pct=72, resets=d)], state), [],
+                             "drift to %s refired" % d)
         self.assertEqual(len(state), 1)
-        # a genuinely different window (a minute or more apart) still re-arms
-        later = self.bucket(pct=72, resets=base + timedelta(minutes=1))
+
+    def test_a_corrupt_anchor_alerts_instead_of_crashing(self):
+        # a stamp persisted without a zone parses fine, then raises TypeError
+        # against an aware resets; alerts must not die on a hand-edited cache
+        base = utc(hours=1)
+        for bad in ("2026-09-15T10:00:00", "not-a-date", 5, None):
+            state = {"session": {"levels": [50, 80, 90], "resets": bad}}
+            self.assertEqual(self.fire([self.bucket(pct=72, resets=base)], state), [50],
+                             "anchor %r did not re-arm" % (bad,))
+
+    def test_a_rolled_over_window_re_arms(self):
+        state = {}
+        base = utc(hours=1).replace(second=0, microsecond=0)
+        self.assertEqual(self.fire([self.bucket(pct=72, resets=base)], state), [50])
+        # the window actually reset: the next one is a whole cycle away
+        later = self.bucket(pct=72, resets=base + timedelta(hours=5))
         self.assertEqual(self.fire([later], state), [50])
 
     def test_unwanted_bucket_is_ignored(self):
@@ -1436,7 +1460,8 @@ class TestMaybeNotify(NotifyFixture):
             cu.maybe_notify({}, data, settings)
         self.assertEqual(send.call_count, 1)
         self.assertEqual(fired[0][2], mixed)
-        self.assertEqual(list(cu.load_cache()["notified"].values()), [[50, 80, 90]])
+        self.assertEqual([e["levels"] for e in cu.load_cache()["notified"].values()],
+                         [[50, 80, 90]])
 
     def test_reads_state_from_disk_not_stale_cache(self):
         # another process alerted after this one loaded its cache copy
@@ -1501,7 +1526,7 @@ class TestMaybeNotify(NotifyFixture):
             fired = cu.maybe_notify({}, data, settings)
         send.assert_called_once()
         self.assertEqual([lvl for _, lvl, _ in fired], [90])
-        self.assertEqual(cu.load_cache()["notified"], {key: [50, 80, 90]})
+        self.assertEqual(cu.load_cache()["notified"][key]["levels"], [50, 80, 90])
         self.assertEqual(cu.load_cache()["notify_pending"], {})
         self.assertEqual(cu._levels(["3", 4.0, None, 5]), {4, 5})
         self.assertEqual(cu._levels("junk"), set())
@@ -1566,7 +1591,8 @@ class TestMaybeNotify(NotifyFixture):
             cu.get_usage(ttl=60, force=True)
             cu.get_usage(ttl=60, force=True)
         self.assertEqual(desktop.call_count, 1)
-        self.assertEqual(list(cu.load_cache()["notified"].values()), [[50, 80, 90]])
+        self.assertEqual([e["levels"] for e in cu.load_cache()["notified"].values()],
+                         [[50, 80, 90]])
 
 
 class TestNotifyTest(NotifyFixture):
