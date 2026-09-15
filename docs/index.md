@@ -1,6 +1,6 @@
 # claude-usage
 
-**Your Claude quota, live in the terminal status bar.** Session, weekly, and per-model windows with reset times. The same numbers as `/usage`, always in view.
+**Your Claude quota, live in the terminal status bar.** Session, weekly, and per-model windows with reset times. The same numbers as `/usage`, always in view. Optional alerts at 50, 80, and 90 percent: in the terminal, on the desktop, or on your phone.
 
 [View on GitHub](https://github.com/Tatendaz/claude-usage) [Install](#install-by-hand)
 
@@ -30,7 +30,7 @@ claude-usage makes remaining quota ambient, like a battery percentage, so you ca
 
 ## Pick the look you want
 
-iTerm2's component list ships six ready-made entries, each previewed right where you drag it from — what you see is what you get, with nothing to configure afterward. They're shown widest first; choose whichever suits the room your bar has.
+iTerm2's component list ships six ready-made entries, each previewed right where you drag it from. What you see is what you get, with nothing to configure afterward. They're shown widest first; choose whichever suits the room your bar has.
 
 ### Wide · Countdown default
 
@@ -46,7 +46,7 @@ The same information, but resets as wall-clock times and dates rather than count
 
 ### Medium
 
-Labels and percentages, no reset times — for when resets are noise to you and you just want the numbers.
+Labels and percentages, no reset times, for when resets are noise to you and you just want the numbers.
 
 ![Medium: the status bar reading Usage 5h 8%, week 27%, fable 46%](https://tatendaz.github.io/claude-usage/img/picker-medium.png)
 
@@ -82,19 +82,19 @@ Calls the same endpoint the `/usage` screen reads, so you get the real remaining
 
 ### One shared cache
 
-One on-disk cache feeds every terminal at once — 60 seconds by default, tunable with `CLAUDE_USAGE_TTL`. Offline shows your last good numbers marked `✳~`, an expired login says so, and display modes always exit 0, so your bar never breaks.
+One on-disk cache feeds every terminal at once, 60 seconds by default, tunable with `CLAUDE_USAGE_TTL`. Offline shows your last good numbers marked `✳~`, an expired login says so, and display modes always exit 0, so your bar never breaks.
 
 ### One readable file
 
-The core is ~1,289 lines of stdlib-only Python with zero dependencies and 183 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.
+The core is about 1,500 lines of stdlib-only Python with zero dependencies and 209 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.
 
 ## Get an alert before it runs out
 
-Optional. The bar already polls, so the alerts ride on that: one notification per window each time it crosses 50, 80, or 90 percent, then silence until the window resets.
+Optional. The bar already polls, so the alerts ride on that: one notification per window each time it crosses 50, 80, or 90 percent, then silence until the window resets. No daemon and no extra process. The check runs inside the refresh your status bar already does.
 
 ### Four channels, any mix
 
-Your terminal's own notification (iTerm2, WezTerm, kitty, ghostty), a macOS notification, a toast inside herdr, or a push to your phone through the free ntfy app on iOS and Android. Pick any mix.
+Your terminal's own notification (iTerm2, WezTerm, kitty, ghostty), a macOS notification, a toast inside herdr, or a push to your phone through the free ntfy app on iOS and Android. Pick any mix. ntfy pushes go to HTTPS servers only, and Enterprise subscriptions cannot use ntfy. The local channels still work there.
 
 ### Your levels
 

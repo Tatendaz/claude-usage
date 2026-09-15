@@ -75,8 +75,8 @@ Nothing to install for the tests. There is no `pip install`, no
 `requirements.txt`, and there must never be one.
 
 ```sh
-python3 -m unittest discover -s tests -v   # the documented runner: 121 tests
-./tests/test_install.sh                    # install.sh / uninstall.sh: 15 tests
+python3 -m unittest discover -s tests -v   # the documented runner: 209 tests
+./tests/test_install.sh                    # install.sh / uninstall.sh: 16 tests
 ./tests/test_install.sh -v                 # ...with each assertion echoed
 shellcheck -S style install.sh uninstall.sh claude-usage.tmux tests/test_install.sh
 ```
