@@ -55,7 +55,9 @@ including `CLAUDE_USAGE_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` overrides. The chec
 runs before every send, including `--notify-test ntfy`; notification settings
 cannot override it. Free, Pro, Max, and Team subscriptions with recognized
 metadata can use ntfy. Local `desktop`, `terminal`, and `herdr` channels remain
-available. An ntfy test reports failure when policy blocks delivery.
+available. An ntfy test reports failure when policy blocks delivery, and
+`--check` lists the channel as `ntfy (blocked: unverified plan)` so the gap is
+visible before an alert is missed.
 
 Only HTTPS ntfy servers without URL credentials are accepted. Redirects are
 rejected for both usage requests and ntfy requests. See [enterprise deployment](ENTERPRISE.md).
