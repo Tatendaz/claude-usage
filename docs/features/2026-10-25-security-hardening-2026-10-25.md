@@ -21,7 +21,7 @@ release in its first week, when most bad releases are caught and pulled.
   Validated against the schemastore Dependabot schema.
 - `.github/workflows/zizmor.yml` (new): `pipx run zizmor==1.31.1
   --min-severity high .github/workflows`, read-only token, checkout pinned.
-- `.github/workflows/merge-when-clean.yml` (new): the owner's template v4,
+- `.github/workflows/merge-when-clean.yml` (new): the owner's template v5,
   unchanged. Merges Dependabot (non-major) PRs and the owner's `security/*` or
   `automerge` PRs once CI is green, a real review ran and 0 threads are open.
 - `.github/workflows/dependabot-auto-merge.yml`: removed.

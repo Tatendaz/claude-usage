@@ -49,6 +49,9 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub runs `shell: bash` as `bash -e -o pipefail`. This script checks every exit code
+          # itself (grep exits 1 on "no match"), so -e must be off or the job dies before rc=$?.
+          set +e
           base=$(gh api "repos/$REPO" --jq .default_branch)
           prs=$(gh api --paginate "repos/$REPO/pulls?state=open&base=$base&per_page=100" \
             --jq ".[] | select(.draft==false) | select(.head.repo.full_name==\"$REPO\")
