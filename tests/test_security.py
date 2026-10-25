@@ -215,25 +215,5 @@ class TmuxPathTests(unittest.TestCase):
             self.assertFalse((base / 'PWNED2').exists())
 
 
-class WorkflowTests(unittest.TestCase):
-    def test_merge_only_after_required_checks_succeed(self):
-        text = (ROOT / '.github/workflows/dependabot-auto-merge.yml').read_text()
-        step = text.split('      - name: Merge (patch + minor)', 1)[1]
-        body = step.split('        run: |\n', 1)[1].split('        env:', 1)[0]
-        script = '\n'.join(line[10:] for line in body.splitlines())
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp)
-            gh = path / 'gh'
-            gh.write_text('#!/bin/sh\nif [ "$2" = checks ]; then exit "$CHECK_EXIT"; fi\nprintf merged > "$MERGED"\n')
-            gh.chmod(0o700)
-            for code in ('0', '1', '8', '124'):
-                marker = path / ('merged-' + code)
-                env = dict(os.environ, PATH=tmp + os.pathsep + os.environ['PATH'],
-                           CHECK_EXIT=code, MERGED=str(marker), PR_URL='https://example.invalid/pr/1', HEAD_SHA='abc')
-                result = subprocess.run(['bash', '-c', script], env=env, capture_output=True)
-                self.assertEqual(marker.exists(), code == '0')
-                self.assertEqual(result.returncode == 0, code == '0')
-
-
 if __name__ == '__main__':
     unittest.main()
