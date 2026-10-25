@@ -1,0 +1,23 @@
+# Session: Security hardening, October 2026
+
+**Branch:** security/hardening-2026-10-25
+**Date:** 2026-10-25
+
+## Prompts
+
+1. "PHASE 2 from coordinator (owner approved): read HARDENING.md and do it for
+   each of your repos."
+2. "Add the auto-merge job from templates/merge-when-clean.yml." (later: v2)
+3. "Delete .github/workflows/dependabot-auto-merge.yml in every hardening PR."
+
+## Steps taken
+- Wrote `.github/dependabot.yml`; `check-jsonschema` against the schemastore
+  Dependabot schema: ok.
+- Added `zizmor.yml` and the merge-when-clean template (sha256 8558ce98...).
+- Removed `dependabot-auto-merge.yml`.
+- `zizmor .github/workflows`: no findings. `actionlint`: clean.
+
+## Decisions
+- zizmor 1.31.1 (released 2026-10-15), not the 1.32 release candidate.
+- No `.coderabbit.yaml` change: Dependabot PRs need CodeRabbit's review so
+  merge-when-clean can merge them.
