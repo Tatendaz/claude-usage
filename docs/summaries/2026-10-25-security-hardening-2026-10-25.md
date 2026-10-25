@@ -7,13 +7,13 @@
 
 1. "PHASE 2 from coordinator (owner approved): read HARDENING.md and do it for
    each of your repos."
-2. "Add the auto-merge job from templates/merge-when-clean.yml." (later: v5)
+2. "Add the auto-merge job from templates/merge-when-clean.yml." (later: v6)
 3. "Delete .github/workflows/dependabot-auto-merge.yml in every hardening PR."
 
 ## Steps taken
 - Wrote `.github/dependabot.yml`; `check-jsonschema` against the schemastore
   Dependabot schema: ok.
-- Added `zizmor.yml` and the merge-when-clean template (v5, sha256 1c493dd7...).
+- Added `zizmor.yml` and the merge-when-clean template (v6, sha256 af7e7bd9...).
 - Removed `dependabot-auto-merge.yml`.
 - `zizmor .github/workflows`: no findings. `actionlint`: clean.
 
