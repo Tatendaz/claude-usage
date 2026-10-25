@@ -10,7 +10,9 @@ name: Merge when clean
 # `security/` branch or labelled `automerge`. Other PRs are left to the owner and
 # to Claude sessions working under the merge-when-clean rule. Skips drafts, forks, Night Shift PRs,
 # PRs labelled `needs-owner` / `do-not-merge`, and PRs that touch database rules,
-# migrations, infra or this file. Owner decision 2026-10-25.
+# migrations, infra, this file, or a path listed in the repo's optional
+# `.github/merge-hold-paths` (one regex per line, read from the default branch).
+# Owner decision 2026-10-25.
 #
 # A merge made with GITHUB_TOKEN does not start other workflows, so a deploy that
 # runs `on: push` to the default branch will not fire after an automatic merge.
@@ -54,6 +56,20 @@ jobs:
                      and ((.head.ref | startswith(\"security/\")) or any(.labels[]; .name==\"automerge\")))) | .number")
           [ -z "$prs" ] && { echo "no open PRs to check"; exit 0; }
 
+          # Optional per-repo hold list: one extended regex per line, matched against changed
+          # paths. Read from the default branch, never from the PR. Unreadable (other than
+          # missing) means merge nothing this run.
+          err=$(mktemp)
+          if hold=$(gh api "repos/$REPO/contents/.github/merge-hold-paths?ref=$base" \
+                      -H "Accept: application/vnd.github.raw" 2>"$err"); then
+            hold=$(grep -vE '^[[:space:]]*(#|$)' <<<"$hold" || true)
+          elif grep -q 'HTTP 404' "$err"; then
+            hold=""
+          else
+            echo "could not read .github/merge-hold-paths: $(head -c 200 "$err"); merging nothing"; exit 0
+          fi
+          [ -n "$hold" ] && echo "hold paths: $(tr '\n' ' ' <<<"$hold")"
+
           # 0 when any "from A to B" in the text changes the major version (or the minor of a 0.x).
           is_major() {
             local a b seen=no
@@ -87,8 +103,11 @@ jobs:
             if [ -z "$files" ] || [ "$(grep -c . <<<"$files")" != "$changed" ]; then
               echo "#$pr: file list incomplete ($changed changed); not merging"; return
             fi
-            if tr '\t' '\n' <<<"$files" | grep -Eq '(^|/)(firestore\.rules|storage\.rules|database\.rules\.json)$|(^|/)migrations/|(^|/)terraform/|\.tf$|^\.github/workflows/merge-when-clean\.yml$'; then
+            if tr '\t' '\n' <<<"$files" | grep -Eq '(^|/)(firestore\.rules|storage\.rules|database\.rules\.json)$|(^|/)migrations/|(^|/)terraform/|\.tf$|^\.github/workflows/merge-when-clean\.yml$|^\.github/merge-hold-paths$'; then
               echo "#$pr: skip (touches files the owner merges)"; return
+            fi
+            if [ -n "$hold" ] && tr '\t' '\n' <<<"$files" | grep -Eq -f <(printf '%s\n' "$hold"); then
+              echo "#$pr: skip (matches .github/merge-hold-paths)"; return
             fi
             if [ "$(jq -r .mergeable_state <<<"$j")" = "dirty" ]; then echo "#$pr: merge conflicts"; return; fi
 
