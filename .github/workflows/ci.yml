@@ -59,7 +59,7 @@ jobs:
   # ---------------------------------------------------------------------
   tests:
     name: Tests (py${{ matrix.python-version }}, ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner || matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -67,6 +67,12 @@ jobs:
         os: [ubuntu-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
+          # ubuntu-latest is Ubuntu 26.04, which has no Python 3.9 build. Run
+          # that leg on 24.04 but keep the `ubuntu-latest` check name, because
+          # the branch ruleset requires `Tests (py3.9, ubuntu-latest)`.
+          - os: ubuntu-latest
+            python-version: "3.9"
+            runner: ubuntu-24.04
           # This is a macOS-first tool (Keychain via `security`, iTerm2
           # AutoLaunch), so at least one macOS leg is worth the minutes.
           # Only a modern version here: actions/python-versions has no 3.9

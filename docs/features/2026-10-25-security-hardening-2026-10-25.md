@@ -25,6 +25,9 @@ release in its first week, when most bad releases are caught and pulled.
   unchanged. Merges Dependabot (non-major) PRs and the owner's `security/*` or
   `automerge` PRs once CI is green, a real review ran and 0 threads are open.
 - `.github/workflows/dependabot-auto-merge.yml`: removed.
+- `.github/workflows/ci.yml`: the py3.9 leg now runs on `ubuntu-24.04`.
+  `ubuntu-latest` moved to Ubuntu 26.04, which has no Python 3.9, so that
+  required check failed on every PR. The check name stays the same.
 - `tests/test_security.py`: removed `WorkflowTests`, which ran the merge step
   of the deleted workflow.
 
