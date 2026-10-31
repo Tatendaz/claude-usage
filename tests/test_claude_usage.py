@@ -809,6 +809,31 @@ class TestCheckAndDemo(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("FAILED", out.getvalue())
 
+    def _check_output(self, meta, source):
+        with mock.patch.object(cu, "load_credentials", return_value=("tok", meta, source)), \
+             mock.patch.object(cu, "claude_cli_version", return_value="1.0.0"), \
+             mock.patch.object(cu, "fetch_usage", return_value=cu.demo_data()), \
+             mock.patch.object(cu, "save_cache"), \
+             mock.patch.object(cu, "load_cache", return_value={}), \
+             mock.patch.object(cu, "notify_settings", return_value={
+                 "enabled": True, "levels": [50, 80, 90],
+                 "channels": ["terminal", "ntfy", "herdr"]}), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            cu.run_check(ttl=60)
+        return out.getvalue()
+
+    def test_run_check_lists_ntfy_plainly_for_verified_plans(self):
+        for plan in ("max", "pro", "team", "free"):
+            out = self._check_output({"subscriptionType": plan}, "keychain")
+            self.assertIn("→ terminal, ntfy, herdr", out)
+            self.assertNotIn("blocked", out)
+
+    def test_run_check_marks_ntfy_blocked_for_env_token_and_enterprise(self):
+        for meta, source in (({}, "env:CLAUDE_USAGE_TOKEN"),
+                             ({"subscriptionType": "enterprise"}, "keychain")):
+            out = self._check_output(meta, source)
+            self.assertIn("→ terminal, ntfy (blocked: unverified plan), herdr", out)
+
 
 class TestMainWithoutData(unittest.TestCase):
     def test_normal_mode_exits_zero_when_quota_unavailable(self):
@@ -926,6 +951,25 @@ class TestSafePlan(unittest.TestCase):
     def test_empty_is_none(self):
         self.assertIsNone(cu._safe_plan(None))
         self.assertIsNone(cu._safe_plan(""))
+
+    def test_ntfy_allowed_matches_send_ntfy_policy(self):
+        for plan in cu.NTFY_PLANS:
+            self.assertTrue(cu.ntfy_allowed({"subscriptionType": plan}))
+        for meta in ({"subscriptionType": "enterprise"}, {"subscriptionType": "x"}, {}, None):
+            self.assertFalse(cu.ntfy_allowed(meta))
+
+
+class TestQuotaDataSpend(unittest.TestCase):
+    def test_spend_severity_survives_the_allowlist(self):
+        for sev in ("normal", "warning", "critical"):
+            data = cu.quota_data({"spend": {"enabled": True, "percent": 42, "severity": sev}})
+            self.assertEqual(data["spend"]["severity"], sev)
+            self.assertEqual(cu.normalize(data)[0]["severity"], sev)
+
+    def test_unknown_spend_severity_is_dropped(self):
+        data = cu.quota_data({"spend": {"enabled": True, "percent": 42, "severity": "sk-ant-x"}})
+        self.assertNotIn("severity", data["spend"])
+        self.assertIsNone(cu.normalize(data)[0]["severity"])
 
 
 class TestRunCheckRedaction(unittest.TestCase):

@@ -209,6 +209,8 @@ def quota_data(data):
     if isinstance(spend, dict) and percent(spend.get("percent")):
         out["spend"] = {"enabled": spend.get("enabled") is True,
                         "percent": max(0, min(100, spend["percent"]))}
+        if spend.get("severity") in ("normal", "warning", "critical"):
+            out["spend"]["severity"] = spend["severity"]
     return out
 
 
@@ -1125,6 +1127,14 @@ def send_herdr(title, body, level=0):
     return out.returncode == 0
 
 
+NTFY_PLANS = ("free", "pro", "max", "team")
+
+
+def ntfy_allowed(meta):
+    """Only verified non-enterprise plans may push to ntfy (see send_ntfy)."""
+    return _safe_plan((meta or {}).get("subscriptionType")) in NTFY_PLANS
+
+
 def send_ntfy(title, body, topic, server=NTFY_DEFAULT_SERVER, level=0):
     """Push only for verified non-enterprise subscriptions over HTTPS."""
     if not topic:
@@ -1133,7 +1143,7 @@ def send_ntfy(title, body, topic, server=NTFY_DEFAULT_SERVER, level=0):
     # Re-read current credentials here: applies to every caller, including
     # --notify-test, and cannot be overridden by notification configuration.
     _token, meta, _source = load_credentials()
-    if _safe_plan(meta.get("subscriptionType")) not in ("free", "pro", "max", "team"):
+    if not ntfy_allowed(meta):
         debug("ntfy disabled: enterprise or unverified subscription")
         return False
     try:
@@ -1382,9 +1392,12 @@ def run_check(ttl):
     print("  · user-agent: claude-code/%s" % claude_cli_version(cache))
     print("  · cache: %s (ttl %ds)" % (CACHE_FILE, ttl))
     ns = notify_settings()
+    # same plan test as send_ntfy: a listed-but-blocked channel is the #22 trap
+    channels = ["ntfy (blocked: unverified plan)" if ch == "ntfy" and not ntfy_allowed(meta) else ch
+                for ch in ns["channels"]]
     print("  · notify: %s at %s → %s" % (
         "on" if ns["enabled"] else "off", "/".join("%d%%" % n for n in ns["levels"]),
-        ", ".join(ns["channels"]) or "no channel"))
+        ", ".join(channels) or "no channel"))
 
     if token:
         try:

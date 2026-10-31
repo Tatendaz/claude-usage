@@ -86,7 +86,7 @@ One on-disk cache feeds every terminal at once, 60 seconds by default, tunable w
 
 ### One readable file
 
-The core is about 1,500 lines of stdlib-only Python with zero dependencies and 209 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.
+The core is about 1,500 lines of stdlib-only Python with zero dependencies and 214 tests, MIT licensed. You can read the whole thing before trusting it near your credentials.
 
 ## Get an alert before it runs out
 
